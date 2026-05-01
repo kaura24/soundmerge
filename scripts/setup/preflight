@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -e
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT_DIR"
+
+fail_count=0
+warn_count=0
+
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  fail_count=$((fail_count + 1))
+}
+
+warn() {
+  printf 'WARN: %s\n' "$1" >&2
+  warn_count=$((warn_count + 1))
+}
+
+pass() {
+  printf 'PASS: %s\n' "$1"
+}
+
+require_file() {
+  if [ -f "$1" ]; then
+    pass "$1 exists"
+  else
+    fail "$1 is missing"
+  fi
+}
+
+is_under() {
+  case "$1" in
+    "$2"/*) return 0 ;;
+    "$2") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_ignored() {
+  git check-ignore -q "$1" 2>/dev/null
+}
+
+load_local_paths() {
+  if [ -f local.paths.env ]; then
+    # shellcheck disable=SC1091
+    set -a
+    . ./local.paths.env
+    set +a
+    pass "local.paths.env loaded"
+  else
+    warn "local.paths.env is missing"
+  fi
+}
+
+check_required_files() {
+  require_file AGENTS.md
+  require_file ARCHITECTURE.md
+  require_file PRD.md
+  require_file LESSONS.md
+  require_file HANDOVER.md
+  require_file .gitignore
+}
+
+check_template_empty_files() {
+  if [ "${FRAMEWORK_MODE:-}" = "template" ] || [ -z "${FRAMEWORK_MODE:-}" ]; then
+    for file in PRD.md LESSONS.md HANDOVER.md; do
+      if [ -f "$file" ] && [ ! -s "$file" ]; then
+        pass "$file is empty for template mode"
+      elif [ -f "$file" ]; then
+        fail "$file must stay empty in template mode"
+      fi
+    done
+  fi
+}
+
+check_git_rules() {
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    pass "git repository detected"
+  else
+    fail "not a git repository"
+    return
+  fi
+
+  for path in .env.secret local.paths.env .omx/ RESEARCH/ test-results/; do
+    if is_ignored "$path"; then
+      pass "$path is ignored by git"
+    else
+      fail "$path is not ignored by git"
+    fi
+  done
+
+  tracked_secret_candidates="$(git ls-files '.env*' '*.key' '*.pem' '*.p12' '*.pfx' 'credentials.json' 'token.json' 'service-account*.json' '*service-account*.json')"
+  if [ -n "$tracked_secret_candidates" ]; then
+    fail "secret candidate files are tracked by git"
+    printf '%s\n' "$tracked_secret_candidates" >&2
+  else
+    pass "no tracked secret candidate files"
+  fi
+}
+
+check_forbidden_project_artifacts() {
+  for path in .venv venv env node_modules vendor dist build out .next .nuxt target coverage htmlcov playwright-report blob-report; do
+    if [ -e "$path" ]; then
+      fail "$path must not exist in project root"
+    fi
+  done
+}
+
+check_project_paths() {
+  if [ "${FRAMEWORK_MODE:-}" != "project" ]; then
+    warn "FRAMEWORK_MODE is not project; project path checks skipped"
+    return
+  fi
+
+  for name in PROJECT_NAME PROJECT_ROOT CLOUD_SYNC_ROOT LOCAL_ROOT ENV_DIR CACHE_DIR BUILD_DIR TEST_WORK_DIR RELEASE_DIR TEST_RESULTS_DIR; do
+    value="${!name:-}"
+    if [ -n "$value" ]; then
+      pass "$name is set"
+    else
+      fail "$name is required in project mode"
+    fi
+  done
+
+  [ -n "${PROJECT_ROOT:-}" ] || return
+  [ -n "${CLOUD_SYNC_ROOT:-}" ] || return
+  [ -n "${LOCAL_ROOT:-}" ] || return
+
+  if is_under "$LOCAL_ROOT" "$PROJECT_ROOT"; then
+    fail "LOCAL_ROOT must not be inside PROJECT_ROOT"
+  else
+    pass "LOCAL_ROOT is outside PROJECT_ROOT"
+  fi
+
+  if is_under "$LOCAL_ROOT" "$CLOUD_SYNC_ROOT"; then
+    fail "LOCAL_ROOT must not be inside CLOUD_SYNC_ROOT"
+  else
+    pass "LOCAL_ROOT is outside CLOUD_SYNC_ROOT"
+  fi
+
+  for pair in "ENV_DIR:$LOCAL_ROOT" "CACHE_DIR:$LOCAL_ROOT" "BUILD_DIR:$LOCAL_ROOT" "TEST_WORK_DIR:$LOCAL_ROOT"; do
+    name="${pair%%:*}"
+    parent="${pair#*:}"
+    value="${!name:-}"
+    if [ -n "$value" ] && is_under "$value" "$parent"; then
+      pass "$name is under LOCAL_ROOT"
+    else
+      fail "$name must be under LOCAL_ROOT"
+    fi
+  done
+
+  if [ "${PRD_FILE:-./PRD.md}" = "./PRD.md" ] && [ -s PRD.md ]; then
+    pass "PRD.md has content for project mode"
+  else
+    fail "PRD.md must have content before project implementation"
+  fi
+
+  if [ -n "${PROJECT_UNITS:-}" ]; then
+    if [ -f "${UNIT_CONFIG:-./config/units.json}" ]; then
+      pass "UNIT_CONFIG exists for PROJECT_UNITS"
+    else
+      fail "UNIT_CONFIG is required when PROJECT_UNITS is set"
+    fi
+  fi
+}
+
+main() {
+  load_local_paths
+  check_required_files
+  check_template_empty_files
+  check_git_rules
+  check_forbidden_project_artifacts
+  check_project_paths
+
+  if [ "$fail_count" -gt 0 ]; then
+    printf 'preflight failed: %s failure(s), %s warning(s)\n' "$fail_count" "$warn_count" >&2
+    exit 1
+  fi
+
+  printf 'preflight passed: %s warning(s)\n' "$warn_count"
+}
+
+main "$@"

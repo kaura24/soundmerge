@@ -1,0 +1,94 @@
+# Local secrets
+.env
+.env.*
+.env.local
+.env.*.local
+.env.secret*
+.envrc
+local.paths.env
+
+# Agent/runtime state
+.omx/
+RESEARCH/
+.DS_Store
+
+# Common secret material and local credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa
+id_ed25519
+credentials.json
+token.json
+service-account*.json
+*service-account*.json
+*.gitleaks-report.json
+gitleaks-report.*
+trufflehog-report.*
+
+# Python environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage/
+htmlcov/
+*.lcov
+coverage.xml
+
+# Node dependencies and caches
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/cache/
+.turbo/
+.cache/
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+target/
+DerivedData/
+
+# Test runtime artifacts and final reports
+test-results/
+**/test-results/
+playwright-report/
+**/playwright-report/
+blob-report/
+**/blob-report/
+junit*.xml
+test-report*.xml
+
+# Final app binaries stay in cloud sync releases, but not in Git by default
+releases/**/*.app/
+releases/**/*.dmg
+releases/**/*.pkg
+releases/**/*.exe
+releases/**/*.msi
+releases/**/*.appx
+releases/**/*.msix
+releases/**/*.zip
+
+# Logs and local databases
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# Local temporary files
+tmp/*
+!tmp/.gitkeep
+sandbox/*
+!sandbox/.gitkeep
