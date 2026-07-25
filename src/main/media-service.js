@@ -410,7 +410,7 @@ function buildVisualFilter(duration, hasBadge = false) {
 
   if (hasBadge) {
     filterParts.push(
-      '[base_v][2:v:0]overlay=W-w-40:40:shortest=0,format=nv12[v]',
+      '[base_v][2:v:0]overlay=W-w-40:40:format=auto:shortest=0,format=nv12[v]',
     );
   }
 
@@ -687,7 +687,7 @@ function buildMultiPairFfmpegArgs({ pairs, outputPath }) {
         `[fg_src_${i}]scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv,setsar=1,format=nv12[fg_${i}];` +
         `[bg_${i}][fg_${i}]overlay=(W-w)/2:(H-h)/2:shortest=0,fps=30,format=nv12,trim=duration=${durArg},setpts=PTS-STARTPTS,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709[${baseV}];` +
         (badgeIdx !== null
-          ? `[${baseV}][${badgeIdx}:v:0]overlay=W-w-40:40:shortest=0,format=nv12[v_${i}];`
+          ? `[${baseV}][${badgeIdx}:v:0]overlay=W-w-40:40:format=auto:shortest=0,format=nv12[v_${i}];`
           : '') +
         `[${aIdx}:a:0]apad,atrim=duration=${durArg},asetpts=N/SR/TB[a_${i}]`,
     );

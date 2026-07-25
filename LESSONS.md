@@ -11,3 +11,10 @@
 - 원인: 빌드 출력과 npm 캐시만 외부화했고 Electron 바이너리 다운로드 캐시는 별도 경로 계약을 사용했다.
 - 해결: electron-builder 설정과 실행 환경에서 Electron 및 builder 캐시를 `LOCAL_ROOT` 아래로 지정했다.
 - 다음에 피할 것: Electron 패키징 전 출력, npm, Electron 다운로드, builder 캐시를 각각 확인하지 않은 채 빌드를 시작하지 않는다.
+
+## 2026-07-25 - Title Badge Overlay 노이즈 제거
+
+- 문제: 워터마크 오버레이(Title Badge Overlay) 사용 시 렌더링된 MP4 및 실시간 미리보기에서 반투명 테두리와 섀도 주변에 잔상/크로마 노이즈가 발생함.
+- 원인: FFmpeg `overlay` 필터가 RGBA 오버레이를 YUV420P 공간에서 직접 합성하여 크로마 서브샘플링 노이즈가 발생하고, 캔버스 미리보기에서는 매 프레임마다 이전 프레임을 `clearRect` 없이 재묘화하여 알파(반투명) 값이 누적 쌓임.
+- 해결: FFmpeg `overlay` 필터에 `format=auto` 옵션을 지정하여 알파 합성 정밀도를 높이고, `drawPreview` 시작 시 `canvasContext.clearRect(0, 0, width, height)`를 호출해 프레임을 초기화함.
+- 다음에 피할 것: 반투명 오버레이 처리 시 FFmpeg overlay 기본 포맷 합성에 의존하거나 캔버스 연속 프레임 렌더링 시 이전 알파 버퍼 clearing을 누락하지 않는다.

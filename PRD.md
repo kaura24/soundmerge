@@ -259,4 +259,4 @@ YouTube 업로드용 고정 프리셋을 사용한다.
 - Reset session과 저장 대화상자 확인 후 기존 출력 교체를 지원한다.
 - MP3 선택 시 첨부 artwork 존재 여부를 표시하고, 단일 작업과 각 Multi-Pair에서 원본 artwork를 시각 자료로 선택할 수 있다.
 - Universal 앱 바이너리는 생성됐고 Intel Mac 실행을 확인했다. Apple Silicon 실기기 실행·렌더링, 서명/notarization, AAC 실측 비트레이트 정책은 출시 전 남은 작업이다.
-- [진행 중 - feature/title-badge-overlay]: 우측 상단 곡 제목 배지 그래픽 워터마크 오버레이 합성 기능의 명세를 PRD에 추가하고 구현에 착수했다.
+- [완료 - feature/title-badge-overlay & feature/app-icon-update]: 우측 상단 곡 제목 배지 그래픽 워터마크 실시간 미리보기 및 MP4 렌더링 합성 기능을 구현 완료하고, 이전 버전과 명확히 구분되는 Sound Forge 전용 골드/앰버 이퀄라이저 웨이브폼 아이콘(`icon.icns`)을 제작하여 빌드에 적용했다.

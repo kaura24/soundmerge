@@ -335,6 +335,7 @@ function createMainWindow() {
     alwaysOnTop: true,
     backgroundColor: '#18181c',
     title: 'Sound Forge',
+    icon: path.join(__dirname, '..', '..', 'assets', 'icon.png'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
