@@ -19,6 +19,7 @@
 
 ## 해야 할 일
 
+- Git 메타데이터 쓰기 권한이 허용되면 `main`으로 전환해 `feature/title-badge-overlay`를 `--ff-only`로 병합한다.
 - Apple Silicon Mac에서 arm64 실행과 실제 렌더링을 검증한다.
 - 배포 전 Apple Developer ID 서명과 notarization을 적용한다.
 - FFmpeg 네이티브 AAC는 384 kbps를 요청하지만 현재 샘플의 실제 평균은 약 265 kbps이므로, 384 kbps 고정이 출시 조건이면 인코더 전략을 확정한다.
