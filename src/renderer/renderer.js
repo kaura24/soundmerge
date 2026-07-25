@@ -48,6 +48,9 @@ const elements = {
   visualName: document.querySelector("#visualName"),
   artworkOption: document.querySelector(".artwork-option"),
   useArtworkCheckbox: document.querySelector("#useArtworkCheckbox"),
+  showTitleBadgeCheckbox: document.querySelector("#showTitleBadgeCheckbox"),
+  badgeInputWrap: document.querySelector("#badgeInputWrap"),
+  titleBadgeInput: document.querySelector("#titleBadgeInput"),
 };
 
 const previewAudio = new Audio();
@@ -72,6 +75,8 @@ const state = {
   animationFrame: null,
   activePairIndex: 0,
   previewPairOffset: 0,
+  showTitleBadge: false,
+  titleBadgeText: "",
 };
 
 function readableError(error, fallback) {
@@ -217,6 +222,8 @@ function updateActionAvailability() {
   elements.selectVisualButton.disabled = state.isBusy;
   elements.selectOutputButton.disabled = state.isBusy;
   elements.useArtworkCheckbox.disabled = state.isBusy || !state.audio?.hasEmbeddedArtwork;
+  if (elements.showTitleBadgeCheckbox) elements.showTitleBadgeCheckbox.disabled = state.isBusy;
+  if (elements.titleBadgeInput) elements.titleBadgeInput.disabled = state.isBusy;
   refreshTimeline();
 }
 
@@ -378,6 +385,133 @@ function getCurrentVisual() {
   return null;
 }
 
+const badgeCanvasCache = new Map();
+
+function getTitleBadgeCanvas(text) {
+  if (badgeCanvasCache.has(text)) {
+    return badgeCanvasCache.get(text);
+  }
+  if (badgeCanvasCache.size > 50) {
+    badgeCanvasCache.clear();
+  }
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  const font = "700 32px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.font = font;
+  const metrics = ctx.measureText(text);
+  const textWidth = Math.ceil(metrics.width);
+
+  const paddingLeft = 24;
+  const iconWidth = 32;
+  const iconGap = 14;
+  const paddingRight = 28;
+  const boxWidth = paddingLeft + iconWidth + iconGap + textWidth + paddingRight;
+  const boxHeight = 76;
+
+  const shadowPaddingX = 24;
+  const shadowPaddingY = 24;
+  canvas.width = boxWidth + shadowPaddingX * 2;
+  canvas.height = boxHeight + shadowPaddingY * 2;
+
+  const boxX = shadowPaddingX;
+  const boxY = shadowPaddingY;
+
+  ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+  ctx.shadowBlur = 16;
+  ctx.shadowOffsetY = 6;
+
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 38);
+  } else {
+    const r = 38;
+    ctx.moveTo(boxX + r, boxY);
+    ctx.lineTo(boxX + boxWidth - r, boxY);
+    ctx.quadraticCurveTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + r);
+    ctx.lineTo(boxX + boxWidth, boxY + boxHeight - r);
+    ctx.quadraticCurveTo(boxX + boxWidth, boxY + boxHeight, boxX + boxWidth - r, boxY + boxHeight);
+    ctx.lineTo(boxX + r, boxY + boxHeight);
+    ctx.quadraticCurveTo(boxX, boxY + boxHeight, boxX, boxY + boxHeight - r);
+    ctx.lineTo(boxX, boxY + r);
+    ctx.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
+  }
+  ctx.fillStyle = "rgba(16, 19, 18, 0.88)";
+  ctx.fill();
+
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "rgba(227, 168, 78, 0.7)";
+  ctx.stroke();
+
+  const iconStartX = boxX + paddingLeft;
+  const iconCenterY = boxY + boxHeight / 2;
+
+  ctx.fillStyle = "#e3a84e";
+  ctx.fillRect(iconStartX, iconCenterY - 6, 4, 12);
+  ctx.fillStyle = "#ffc872";
+  ctx.fillRect(iconStartX + 8, iconCenterY - 12, 4, 24);
+  ctx.fillStyle = "#e3a84e";
+  ctx.fillRect(iconStartX + 16, iconCenterY - 8, 4, 16);
+  ctx.fillStyle = "#c28e38";
+  ctx.fillRect(iconStartX + 24, iconCenterY - 10, 4, 20);
+
+  ctx.font = font;
+  ctx.fillStyle = "#eee8dc";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, iconStartX + iconWidth + iconGap, iconCenterY);
+
+  badgeCanvasCache.set(text, canvas);
+  return canvas;
+}
+
+function getTitleBadgeDataUrl(text) {
+  return getTitleBadgeCanvas(text).toDataURL("image/png");
+}
+
+function getCurrentPair() {
+  if (state.mode !== "multi" || state.pairs.length === 0) return null;
+  const current = previewTimelinePosition();
+  let accumulated = 0;
+  for (const pair of state.pairs) {
+    const dur = Number(pair.audio?.duration) || 0;
+    if (current >= accumulated && current <= accumulated + dur) {
+      return pair;
+    }
+    accumulated += dur;
+  }
+  return state.pairs[state.pairs.length - 1] || null;
+}
+
+function getActiveBadgeText() {
+  if (state.mode === "single") {
+    if (state.titleBadgeText && state.titleBadgeText.trim()) {
+      return state.titleBadgeText.trim();
+    }
+    if (state.audio?.name) {
+      return state.audio.name.replace(/\.[^/.]+$/, "");
+    }
+    return "Sound Forge Master";
+  } else if (state.mode === "multi") {
+    const pair = getCurrentPair();
+    if (pair) {
+      if (pair.titleBadgeText && pair.titleBadgeText.trim()) {
+        return pair.titleBadgeText.trim();
+      }
+      if (pair.audio?.name) {
+        return pair.audio.name.replace(/\.[^/.]+$/, "");
+      }
+    }
+    if (state.titleBadgeText && state.titleBadgeText.trim()) {
+      return state.titleBadgeText.trim();
+    }
+    return "Sound Forge Multi-Master";
+  }
+  return "";
+}
+
 let activeVisualUrl = "";
 
 function syncVisualSource(visual) {
@@ -439,6 +573,19 @@ function drawPreview() {
     canvasContext.clearRect(0, 0, width, height);
     canvasContext.fillStyle = "#090b0a";
     canvasContext.fillRect(0, 0, width, height);
+  }
+
+  if (state.showTitleBadge) {
+    const badgeText = getActiveBadgeText();
+    if (badgeText) {
+      const badgeCanvas = getTitleBadgeCanvas(badgeText);
+      const scale = width / 1920;
+      const destW = badgeCanvas.width * scale;
+      const destH = badgeCanvas.height * scale;
+      const destX = width - destW - (40 * scale);
+      const destY = 40 * scale;
+      canvasContext.drawImage(badgeCanvas, destX, destY, destW, destH);
+    }
   }
 
   if (!previewAudio.paused && kind === "video") {
@@ -710,6 +857,13 @@ function resetSession() {
   elements.useArtworkCheckbox.checked = false;
   elements.useArtworkCheckbox.disabled = true;
   elements.useArtworkCheckbox.title = "Choose an MP3 to check for embedded artwork.";
+  state.showTitleBadge = false;
+  state.titleBadgeText = "";
+  if (elements.showTitleBadgeCheckbox) elements.showTitleBadgeCheckbox.checked = false;
+  if (elements.titleBadgeInput) {
+    elements.titleBadgeInput.value = "";
+    if (elements.badgeInputWrap) elements.badgeInputWrap.hidden = true;
+  }
   renderPairList();
   switchMode("single");
   setSystemStatus("ENGINE STANDBY", "standby");
@@ -890,6 +1044,22 @@ function renderPairList() {
     item.appendChild(header);
     item.appendChild(pickers);
 
+    if (state.showTitleBadge) {
+      const badgeWrap = document.createElement("div");
+      badgeWrap.style.marginTop = "6px";
+      const badgeInput = document.createElement("input");
+      badgeInput.type = "text";
+      badgeInput.className = "badge-text-input";
+      badgeInput.placeholder = pair.audio ? `Title: ${pair.audio.name.replace(/\\.[^/.]+$/, "")}` : "Custom song title for this pair";
+      badgeInput.value = pair.titleBadgeText || "";
+      badgeInput.addEventListener("input", (e) => {
+        pair.titleBadgeText = e.target.value;
+        drawPreview();
+      });
+      badgeWrap.appendChild(badgeInput);
+      item.appendChild(badgeWrap);
+    }
+
     header.addEventListener("click", (e) => {
       const btn = e.target.closest("button");
       if (!btn) return;
@@ -960,10 +1130,16 @@ async function renderMaster() {
     let result;
     if (state.mode === "multi") {
       result = await api.renderMulti({
-        pairs: state.pairs.map((p) => ({
-          audioPath: p.audio.path,
-          visualPath: p.visual.path,
-        })),
+        pairs: state.pairs.map((p) => {
+          let text = p.titleBadgeText && p.titleBadgeText.trim()
+            ? p.titleBadgeText.trim()
+            : (p.audio?.name ? p.audio.name.replace(/\\.[^/.]+$/, "") : (state.titleBadgeText.trim() || "Sound Forge Track"));
+          return {
+            audioPath: p.audio.path,
+            visualPath: p.visual.path,
+            badgeDataUrl: state.showTitleBadge ? getTitleBadgeDataUrl(text) : null,
+          };
+        }),
         outputPath: state.outputPath,
       });
     } else {
@@ -972,6 +1148,7 @@ async function renderMaster() {
         visualPath: state.visual.path,
         visualKind: state.visual.kind,
         outputPath: state.outputPath,
+        badgeDataUrl: state.showTitleBadge ? getTitleBadgeDataUrl(getActiveBadgeText()) : null,
       });
     }
 
@@ -1060,6 +1237,23 @@ elements.addPairBtn.addEventListener("click", addPair);
 elements.selectAudioButton.addEventListener("click", selectAudio);
 elements.selectVisualButton.addEventListener("click", selectVisual);
 elements.useArtworkCheckbox.addEventListener("change", toggleEmbeddedArtwork);
+if (elements.showTitleBadgeCheckbox) {
+  elements.showTitleBadgeCheckbox.addEventListener("change", (e) => {
+    state.showTitleBadge = e.target.checked;
+    if (elements.badgeInputWrap) {
+      elements.badgeInputWrap.hidden = !state.showTitleBadge;
+    }
+    drawPreview();
+    renderPairList();
+    updateActionAvailability();
+  });
+}
+if (elements.titleBadgeInput) {
+  elements.titleBadgeInput.addEventListener("input", (e) => {
+    state.titleBadgeText = e.target.value;
+    drawPreview();
+  });
+}
 elements.selectOutputButton.addEventListener("click", selectOutput);
 elements.playPauseButton.addEventListener("click", togglePreview);
 elements.renderButton.addEventListener("click", renderMaster);
@@ -1088,6 +1282,9 @@ previewAudio.addEventListener("durationchange", refreshTimeline);
 previewAudio.addEventListener("timeupdate", () => {
   refreshTimeline();
   syncVideoToAudio();
+  if (state.mode === "multi") {
+    drawPreview();
+  }
 });
 previewAudio.addEventListener("play", () => setTransportPlaying(true));
 previewAudio.addEventListener("pause", () => setTransportPlaying(false));

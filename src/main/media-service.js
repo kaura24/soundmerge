@@ -360,7 +360,7 @@ function validateProbeMetadata(kind, metadata, filePath = 'Selected file') {
 }
 
 async function inspectInputs(
-  { audioPath, visualPath },
+  { audioPath, visualPath, badgePath },
   {
     ffprobePath,
     probeImpl = probeMedia,
@@ -379,6 +379,7 @@ async function inspectInputs(
 
   return {
     ...validated,
+    badgePath,
     audioDuration: metadataDuration(audio, 'audio'),
     audio,
     visual,
@@ -390,8 +391,8 @@ function durationArgument(value) {
   return Number(duration.toFixed(6)).toString();
 }
 
-function buildVisualFilter(duration) {
-  return [
+function buildVisualFilter(duration, hasBadge = false) {
+  const filterParts = [
     '[0:v:0]format=nv12,split=2[background_source][foreground_source]',
     '[background_source]scale=480:270:force_original_aspect_ratio=increase,' +
       'crop=480:270,' +
@@ -404,9 +405,20 @@ function buildVisualFilter(duration) {
       `fps=30,format=nv12,trim=duration=${duration},` +
       'setpts=PTS-STARTPTS,' +
       'setparams=range=limited:color_primaries=bt709:' +
-      'color_trc=bt709:colorspace=bt709[v]',
+      `color_trc=bt709:colorspace=bt709[${hasBadge ? 'base_v' : 'v'}]`,
+  ];
+
+  if (hasBadge) {
+    filterParts.push(
+      '[base_v][2:v:0]overlay=W-w-40:40:shortest=0,format=nv12[v]',
+    );
+  }
+
+  filterParts.push(
     `[1:a:0]apad,atrim=duration=${duration},asetpts=N/SR/TB[a]`,
-  ].join(';');
+  );
+
+  return filterParts.join(';');
 }
 
 function buildFfmpegArgs({
@@ -415,6 +427,7 @@ function buildFfmpegArgs({
   visualType,
   duration,
   outputPath,
+  badgePath,
 }) {
   const validated = validateInputPaths(audioPath, visualPath);
   const resolvedVisualType = visualType || validated.visualType;
@@ -443,11 +456,15 @@ function buildFfmpegArgs({
     args.push('-stream_loop', '-1', '-i', visualPath);
   }
 
+  args.push('-i', audioPath);
+  const hasBadge = Boolean(badgePath && typeof badgePath === 'string');
+  if (hasBadge) {
+    args.push('-loop', '1', '-framerate', '1', '-i', badgePath);
+  }
+
   args.push(
-    '-i',
-    audioPath,
     '-filter_complex',
-    buildVisualFilter(exactDuration),
+    buildVisualFilter(exactDuration, hasBadge),
     '-map',
     '[v]',
     '-map',
@@ -537,6 +554,7 @@ async function createMediaFile(
     visualType,
     duration,
     outputPath,
+    badgePath,
     overwrite = false,
   },
   {
@@ -594,6 +612,7 @@ async function createMediaFile(
     visualType,
     duration,
     outputPath: tempPath,
+    badgePath,
   });
 
   try {
@@ -639,6 +658,7 @@ function buildMultiPairFfmpegArgs({ pairs, outputPath }) {
   const filterParts = [];
   const concatInputs = [];
   let totalDurationSeconds = 0;
+  let inputIndex = 0;
 
   pairs.forEach((pair, i) => {
     const visualType = pair.visualType || 'image';
@@ -647,19 +667,28 @@ function buildMultiPairFfmpegArgs({ pairs, outputPath }) {
     } else {
       args.push('-stream_loop', '-1', '-i', pair.visualPath);
     }
+    const vIdx = inputIndex++;
     args.push('-i', pair.audioPath);
+    const aIdx = inputIndex++;
+
+    let badgeIdx = null;
+    if (pair.badgePath && typeof pair.badgePath === 'string') {
+      args.push('-loop', '1', '-framerate', '1', '-i', pair.badgePath);
+      badgeIdx = inputIndex++;
+    }
 
     const durArg = durationArgument(pair.duration);
     totalDurationSeconds += parseDurationSeconds(pair.duration, `Pair ${i + 1} audio`);
 
-    const vIdx = i * 2;
-    const aIdx = i * 2 + 1;
-
+    const baseV = badgeIdx !== null ? `base_v_${i}` : `v_${i}`;
     filterParts.push(
       `[${vIdx}:v:0]format=nv12,split=2[bg_src_${i}][fg_src_${i}];` +
         `[bg_src_${i}]scale=480:270:force_original_aspect_ratio=increase,crop=480:270,scale=1920:1080:flags=bicubic:out_range=tv,setsar=1,format=nv12[bg_${i}];` +
         `[fg_src_${i}]scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv,setsar=1,format=nv12[fg_${i}];` +
-        `[bg_${i}][fg_${i}]overlay=(W-w)/2:(H-h)/2:shortest=0,fps=30,format=nv12,trim=duration=${durArg},setpts=PTS-STARTPTS,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v_${i}];` +
+        `[bg_${i}][fg_${i}]overlay=(W-w)/2:(H-h)/2:shortest=0,fps=30,format=nv12,trim=duration=${durArg},setpts=PTS-STARTPTS,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709[${baseV}];` +
+        (badgeIdx !== null
+          ? `[${baseV}][${badgeIdx}:v:0]overlay=W-w-40:40:shortest=0,format=nv12[v_${i}];`
+          : '') +
         `[${aIdx}:a:0]apad,atrim=duration=${durArg},asetpts=N/SR/TB[a_${i}]`,
     );
     concatInputs.push(`[v_${i}][a_${i}]`);
@@ -774,6 +803,7 @@ async function inspectMultiPairInputs(
     inspectedPairs.push({
       audioPath,
       visualPath,
+      badgePath: pair.badgePath,
       visualType,
       duration,
       audio,

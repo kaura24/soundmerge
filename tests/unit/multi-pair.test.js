@@ -76,3 +76,19 @@ test('inspectMultiPairInputs classifies each visual before validating its probe'
   assert.equal(inspected.pairs[0].visualType, 'image');
   assert.equal(inspected.totalDuration, 12);
 });
+
+test('buildMultiPairFfmpegArgs includes badgePath overlay filter when provided', () => {
+  const pairs = [
+    { audioPath: '/media/track1.mp3', visualPath: '/media/img1.png', visualType: 'image', duration: 10, badgePath: '/media/badge1.png' },
+    { audioPath: '/media/track2.mp3', visualPath: '/media/img2.jpg', visualType: 'image', duration: 15 },
+  ];
+
+  const args = buildMultiPairFfmpegArgs({
+    pairs,
+    outputPath: '/media/output.mp4',
+  });
+
+  const filterString = args[args.indexOf('-filter_complex') + 1];
+  assert.ok(args.includes('/media/badge1.png'));
+  assert.ok(filterString.includes('[base_v_0][2:v:0]overlay=W-w-40:40:shortest=0,format=nv12[v_0]'));
+});

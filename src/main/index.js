@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
@@ -43,6 +44,21 @@ let renderActive = false;
 
 function fileUrl(filePath) {
   return pathToFileURL(filePath).href;
+}
+
+async function saveTempBadgeImage(badgeDataUrl, targetDir) {
+  if (
+    !badgeDataUrl ||
+    typeof badgeDataUrl !== 'string' ||
+    !badgeDataUrl.startsWith('data:image/png;base64,')
+  ) {
+    return null;
+  }
+  const base64Data = badgeDataUrl.replace(/^data:image\/png;base64,/, '');
+  const buffer = Buffer.from(base64Data, 'base64');
+  const tempPath = path.join(targetDir, `.badge-${randomUUID()}.tmp.png`);
+  await fs.promises.writeFile(tempPath, buffer);
+  return tempPath;
 }
 
 function streamOfType(metadata, type) {
@@ -200,13 +216,18 @@ function registerIpcHandlers() {
       throw new Error('A render is already running.');
     }
     renderActive = true;
+    let badgePath = null;
 
     try {
       const { ffmpegPath, ffprobePath } = resolveBinaryPaths({ app });
+      const targetDir = path.dirname(path.resolve(request.outputPath));
+      badgePath = await saveTempBadgeImage(request.badgeDataUrl, targetDir);
+
       const inspection = await inspectInputs(
         {
           audioPath: request.audioPath,
           visualPath: request.visualPath,
+          badgePath,
         },
         { ffprobePath },
       );
@@ -224,6 +245,7 @@ function registerIpcHandlers() {
         visualType: inspection.visualType,
         duration: inspection.audioDuration,
         outputPath: request.outputPath,
+        badgePath: inspection.badgePath,
         overwrite: true,
       });
       return {
@@ -233,6 +255,9 @@ function registerIpcHandlers() {
       };
     } finally {
       renderActive = false;
+      if (badgePath) {
+        await fs.promises.rm(badgePath, { force: true }).catch(() => {});
+      }
     }
   });
 
@@ -241,10 +266,22 @@ function registerIpcHandlers() {
       throw new Error('A render is already running.');
     }
     renderActive = true;
+    const tempBadgePaths = [];
 
     try {
       const { ffmpegPath, ffprobePath } = resolveBinaryPaths({ app });
-      const inspection = await inspectMultiPairInputs(request.pairs, {
+      const targetDir = path.dirname(path.resolve(request.outputPath));
+      const pairsWithBadges = await Promise.all(
+        request.pairs.map(async (pair) => {
+          const badgePath = await saveTempBadgeImage(pair.badgeDataUrl, targetDir);
+          if (badgePath) {
+            tempBadgePaths.push(badgePath);
+          }
+          return { ...pair, badgePath };
+        }),
+      );
+
+      const inspection = await inspectMultiPairInputs(pairsWithBadges, {
         ffprobePath,
       });
 
@@ -261,6 +298,9 @@ function registerIpcHandlers() {
       };
     } finally {
       renderActive = false;
+      for (const p of tempBadgePaths) {
+        await fs.promises.rm(p, { force: true }).catch(() => {});
+      }
     }
   });
 

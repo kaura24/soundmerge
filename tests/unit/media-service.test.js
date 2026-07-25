@@ -480,3 +480,18 @@ test('createMediaFile replaces an output after the save dialog confirms overwrit
   assert.equal(result, outputPath);
   assert.deepEqual(calls.at(-1), ['rename', tempPath, outputPath]);
 });
+
+test('buildFfmpegArgs includes badgePath overlay filter when provided', () => {
+  const args = buildFfmpegArgs({
+    audioPath: '/media/song.mp3',
+    visualPath: '/media/cover.png',
+    visualType: 'image',
+    duration: 10,
+    outputPath: '/output/final.mp4',
+    badgePath: '/media/badge.png',
+  });
+
+  const filterString = args[args.indexOf('-filter_complex') + 1];
+  assert.ok(args.includes('/media/badge.png'));
+  assert.ok(filterString.includes('[base_v][2:v:0]overlay=W-w-40:40:shortest=0,format=nv12[v]'));
+});

@@ -245,8 +245,36 @@
             </section>
           </div>
 
-          <section class="output-card" aria-labelledby="outputHeading">
+          <section class="source-card" id="titleBadgeCard" aria-labelledby="titleBadgeHeading">
             <div class="card-index" aria-hidden="true">03</div>
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">Watermark overlay</p>
+                <h2 id="titleBadgeHeading">Song title badge</h2>
+              </div>
+              <span class="source-type">PNG OVERLAY</span>
+            </div>
+
+            <label class="artwork-option" for="showTitleBadgeCheckbox">
+              <input id="showTitleBadgeCheckbox" type="checkbox" />
+              <span>
+                <strong>Show song title badge in top-right corner</strong>
+                <small>Overlays a sleek graphic badge on the output video</small>
+              </span>
+            </label>
+
+            <div class="badge-input-wrap" id="badgeInputWrap" style="margin-top: 12px;" hidden>
+              <input
+                type="text"
+                id="titleBadgeInput"
+                class="badge-text-input"
+                placeholder="Custom song title (leave blank for automatic track name)"
+              />
+            </div>
+          </section>
+
+          <section class="output-card" aria-labelledby="outputHeading">
+            <div class="card-index" aria-hidden="true">04</div>
             <div class="card-heading">
               <div>
                 <p class="eyebrow">Destination</p>
