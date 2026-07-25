@@ -385,6 +385,19 @@ function createMainWindow() {
 }
 
 async function startApplication() {
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+    return;
+  }
+
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
   await app.whenReady();
   registerIpcHandlers();
   createMainWindow();
