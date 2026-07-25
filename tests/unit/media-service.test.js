@@ -6,8 +6,12 @@ const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 
 const {
+  artworkExtension,
+  buildArtworkExtractArgs,
   buildFfmpegArgs,
   createMediaFile,
+  extractEmbeddedArtwork,
+  findEmbeddedArtwork,
   inspectInputs,
   parseProbeJson,
   probeMedia,
@@ -140,6 +144,73 @@ test('probeMedia includes bounded stderr when ffprobe fails', async () => {
   );
 });
 
+test('findEmbeddedArtwork identifies an attached picture stream', () => {
+  const artwork = {
+    index: 1,
+    codec_type: 'video',
+    codec_name: 'mjpeg',
+    width: 640,
+    height: 640,
+    disposition: { attached_pic: 1 },
+  };
+
+  assert.equal(findEmbeddedArtwork({ streams: [audioProbe.streams[0], artwork] }), artwork);
+  assert.equal(artworkExtension(artwork), '.jpg');
+  assert.equal(
+    artworkExtension({ codec_type: 'video', codec_name: 'png' }),
+    '.png',
+  );
+});
+
+test('buildArtworkExtractArgs copies the original embedded picture stream', () => {
+  assert.deepEqual(
+    buildArtworkExtractArgs({
+      audioPath: '/media/song.mp3',
+      streamIndex: 1,
+      outputPath: '/tmp/cover.jpg',
+    }),
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-i',
+      '/media/song.mp3',
+      '-map',
+      '0:1',
+      '-frames:v',
+      '1',
+      '-c:v',
+      'copy',
+      '-an',
+      '/tmp/cover.jpg',
+    ],
+  );
+});
+
+test('extractEmbeddedArtwork invokes ffmpeg with the requested stream', async () => {
+  let invocation;
+  const outputPath = '/tmp/cover.png';
+  const result = await extractEmbeddedArtwork(
+    {
+      ffmpegPath: '/bin/ffmpeg',
+      audioPath: '/media/song.mp3',
+      streamIndex: 2,
+      outputPath,
+    },
+    {
+      runProcessImpl: async (binaryPath, args, options) => {
+        invocation = { binaryPath, args, options };
+      },
+    },
+  );
+
+  assert.equal(result, outputPath);
+  assert.equal(invocation.binaryPath, '/bin/ffmpeg');
+  assert.equal(invocation.args.at(-1), outputPath);
+  assert.equal(typeof invocation.options.spawnImpl, 'function');
+});
+
 test('validateProbeMetadata enforces MP3 and H.264 MP4 codecs', () => {
   assert.doesNotThrow(() =>
     validateProbeMetadata('audio', audioProbe, '/media/song.mp3'),
@@ -217,16 +288,24 @@ test('buildFfmpegArgs loops an image and emits the fixed YouTube preset', () => 
     '-loop',
     '1',
     '-framerate',
-    '30',
+    '1',
   ]);
   assert.equal(args.includes('-stream_loop'), false);
-  assert.match(args[args.indexOf('-filter_complex') + 1], /gblur=sigma=30/);
+  assert.match(
+    args[args.indexOf('-filter_complex') + 1],
+    /format=nv12,split=2.*scale=480:270.*crop=480:270.*scale=1920:1080/,
+  );
   assert.match(
     args[args.indexOf('-filter_complex') + 1],
     /atrim=duration=245\.125/,
   );
   assert.equal(args[args.indexOf('-profile:v') + 1], 'high');
-  assert.equal(args[args.indexOf('-pix_fmt') + 1], 'yuv420p');
+  assert.equal(
+    args[args.indexOf('-c:v') + 1],
+    'h264_videotoolbox',
+  );
+  assert.equal(args[args.indexOf('-allow_sw') + 1], '1');
+  assert.equal(args[args.indexOf('-pix_fmt') + 1], 'nv12');
   assert.equal(args[args.indexOf('-field_order') + 1], 'progressive');
   assert.equal(args[args.indexOf('-b:v') + 1], '8M');
   assert.equal(args[args.indexOf('-c:a') + 1], 'aac');
@@ -360,4 +439,44 @@ test('createMediaFile refuses existing output and cleans failed temp output', as
   assert.deepEqual(removed, [
     ['/output/.final.failed-id.tmp.mp4', { force: true }],
   ]);
+});
+
+test('createMediaFile replaces an output after the save dialog confirms overwrite', async () => {
+  const calls = [];
+  const outputPath = '/output/existing.mp4';
+  const tempPath = '/output/.existing.overwrite-id.tmp.mp4';
+
+  const result = await createMediaFile(
+    {
+      ffmpegPath: '/bin/ffmpeg',
+      audioPath: '/media/song.mp3',
+      visualPath: '/media/cover.png',
+      visualType: 'image',
+      duration: 10,
+      outputPath,
+      overwrite: true,
+    },
+    {
+      fsPromises: {
+        access: async () => {},
+        lstat: async (filePath) => {
+          if (filePath === outputPath) {
+            return { isFile: () => true };
+          }
+          const error = new Error('missing');
+          error.code = 'ENOENT';
+          throw error;
+        },
+        rename: async (...args) => calls.push(['rename', ...args]),
+        rm: async (...args) => calls.push(['rm', ...args]),
+      },
+      idFactory: () => 'overwrite-id',
+      runProcessImpl: async (_binaryPath, args) => {
+        assert.equal(args.at(-1), tempPath);
+      },
+    },
+  );
+
+  assert.equal(result, outputPath);
+  assert.deepEqual(calls.at(-1), ['rename', tempPath, outputPath]);
 });

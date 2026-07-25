@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_DIR=$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd)
+
+if [[ ! -f "${PROJECT_DIR}/local.paths.env" ]]; then
+  echo "local.paths.env is required" >&2
+  exit 1
+fi
+
+set -a
+# shellcheck disable=SC1091
+source "${PROJECT_DIR}/local.paths.env"
+set +a
+
+"${PROJECT_DIR}/scripts/setup/preflight"
+
+FFMPEG_VERSION=8.1.2
+FFMPEG_ARCHIVE_SHA256=464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+FFMPEG_CACHE_DIR="${CACHE_DIR}/ffmpeg/${FFMPEG_VERSION}"
+FFMPEG_BUILD_ROOT="${BUILD_DIR}/ffmpeg-${FFMPEG_VERSION}"
+FFMPEG_SOURCE_DIR="${FFMPEG_BUILD_ROOT}/source"
+MEDIA_TOOLS_DIR="${ENV_DIR}/media-tools"
+SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
+
+mkdir -p "${FFMPEG_CACHE_DIR}" "${FFMPEG_BUILD_ROOT}" "${MEDIA_TOOLS_DIR}"
+
+ARCHIVE_PATH="${FFMPEG_CACHE_DIR}/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+if [[ ! -f "${ARCHIVE_PATH}" ]]; then
+  curl -fL --retry 3 \
+    -o "${ARCHIVE_PATH}" \
+    "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+fi
+
+ACTUAL_SHA256=$(shasum -a 256 "${ARCHIVE_PATH}" | awk '{print $1}')
+if [[ "${ACTUAL_SHA256}" != "${FFMPEG_ARCHIVE_SHA256}" ]]; then
+  echo "FFmpeg archive checksum mismatch" >&2
+  exit 1
+fi
+
+if [[ ! -f "${FFMPEG_SOURCE_DIR}/configure" ]]; then
+  mkdir -p "${FFMPEG_SOURCE_DIR}"
+  tar -xJf "${ARCHIVE_PATH}" \
+    --strip-components=1 \
+    -C "${FFMPEG_SOURCE_DIR}"
+fi
+
+configure_arch() {
+  local arch=$1
+  local build_dir="${FFMPEG_BUILD_ROOT}/build-${arch}"
+  local prefix_dir="${FFMPEG_BUILD_ROOT}/install-${arch}"
+  local cross_flags=()
+  local asm_flags=()
+
+  if [[ "${arch}" == "arm64" ]]; then
+    cross_flags+=(--enable-cross-compile)
+  else
+    asm_flags+=(--disable-x86asm)
+  fi
+
+  mkdir -p "${build_dir}"
+  (
+    cd "${build_dir}"
+    "${FFMPEG_SOURCE_DIR}/configure" \
+      --prefix="${prefix_dir}" \
+      --arch="${arch}" \
+      --target-os=darwin \
+      --cc="clang -arch ${arch}" \
+      --extra-cflags="-mmacosx-version-min=13.0 -isysroot ${SDK_PATH}" \
+      --extra-ldflags="-mmacosx-version-min=13.0 -isysroot ${SDK_PATH}" \
+      --disable-shared \
+      --enable-static \
+      --disable-doc \
+      --disable-debug \
+      --disable-gpl \
+      --disable-nonfree \
+      --disable-autodetect \
+      --disable-network \
+      --disable-avdevice \
+      --disable-ffplay \
+      --enable-zlib \
+      --enable-videotoolbox \
+      --enable-audiotoolbox \
+      --enable-pthreads \
+      "${cross_flags[@]}" \
+      "${asm_flags[@]}"
+  )
+}
+
+build_arch() {
+  local arch=$1
+  make -C "${FFMPEG_BUILD_ROOT}/build-${arch}" \
+    -j"$(sysctl -n hw.logicalcpu)" \
+    ffmpeg ffprobe
+}
+
+configure_arch x86_64
+configure_arch arm64
+build_arch x86_64 &
+X64_BUILD_PID=$!
+build_arch arm64 &
+ARM64_BUILD_PID=$!
+wait "${X64_BUILD_PID}"
+wait "${ARM64_BUILD_PID}"
+
+lipo -create \
+  "${FFMPEG_BUILD_ROOT}/build-x86_64/ffmpeg" \
+  "${FFMPEG_BUILD_ROOT}/build-arm64/ffmpeg" \
+  -output "${MEDIA_TOOLS_DIR}/ffmpeg"
+lipo -create \
+  "${FFMPEG_BUILD_ROOT}/build-x86_64/ffprobe" \
+  "${FFMPEG_BUILD_ROOT}/build-arm64/ffprobe" \
+  -output "${MEDIA_TOOLS_DIR}/ffprobe"
+chmod 755 "${MEDIA_TOOLS_DIR}/ffmpeg" "${MEDIA_TOOLS_DIR}/ffprobe"
+cp "${FFMPEG_SOURCE_DIR}/COPYING.LGPLv2.1" \
+  "${MEDIA_TOOLS_DIR}/LICENSE-FFMPEG-LGPL-2.1.txt"
+cp "${FFMPEG_SOURCE_DIR}/COPYING.LGPLv3" \
+  "${MEDIA_TOOLS_DIR}/LICENSE-FFMPEG-LGPL-3.0.txt"
+cp "${PROJECT_DIR}/config/media-tools-build-info.txt" \
+  "${MEDIA_TOOLS_DIR}/BUILD-INFO.txt"
+
+echo "Built Universal FFmpeg ${FFMPEG_VERSION} in ${MEDIA_TOOLS_DIR}"

@@ -1,0 +1,6 @@
+FFmpeg version: 8.1.2
+Source: https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+Source SHA-256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+Architectures: x86_64, arm64
+License configuration: LGPL; GPL and nonfree components disabled
+H.264 encoder: Apple VideoToolbox

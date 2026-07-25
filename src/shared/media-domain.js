@@ -123,6 +123,26 @@ function formatMediaTime(value) {
   return `${twoDigits(minutes)}:${twoDigits(seconds)}`;
 }
 
+function validateMultiPairInputPaths(pairs) {
+  if (!Array.isArray(pairs) || pairs.length === 0) {
+    throw new InputValidationError(
+      'At least one image and audio pair is required.',
+      'PAIRS_REQUIRED',
+    );
+  }
+
+  return pairs.map((pair, index) => {
+    if (!pair || typeof pair !== 'object') {
+      throw new InputValidationError(
+        `Pair at position ${index + 1} is invalid.`,
+        'INVALID_PAIR',
+      );
+    }
+    const validated = validateInputPaths(pair.audioPath, pair.visualPath);
+    return validated;
+  });
+}
+
 module.exports = {
   AUDIO_EXTENSIONS,
   IMAGE_EXTENSIONS,
@@ -136,4 +156,5 @@ module.exports = {
   parseDurationSeconds,
   parseFrameRate,
   validateInputPaths,
+  validateMultiPairInputPaths,
 };

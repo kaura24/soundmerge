@@ -1,0 +1,46 @@
+{
+  "purpose": "Internet-downloaded, unmodified acceptance-test media",
+  "files": [
+    {
+      "localName": "music-287s.mp3",
+      "url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Mazurka_Op._24_no._4_in_B_flat_minor.mp3",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Mazurka_Op._24_no._4_in_B_flat_minor.mp3",
+      "license": "CC0 1.0",
+      "sha256": "f06ccd507c117edfee7803bf5b87eea210ef577b01c9e6d7590ce7f2ba26be11",
+      "durationSeconds": 287.998685
+    },
+    {
+      "localName": "cover.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/C220412_%2823323109965%29.jpg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:C220412_%2823323109965%29.jpg",
+      "license": "CC0 1.0",
+      "sha256": "591fdbb46cfbec31b1bf1149ea963485ebe9ba720a818459443601b481cbfad9",
+      "width": 3000,
+      "height": 4000
+    },
+    {
+      "localName": "loop-4s.mp4",
+      "url": "https://svs.gsfc.nasa.gov/vis/a020000/a020100/a020155/a010298_DataTransfer1_NTSC.mp4",
+      "sourcePage": "https://svs.gsfc.nasa.gov/20155/",
+      "license": "NASA media usage guidelines; public-domain NASA material",
+      "sha256": "e821aadebf663ed80440c3f288f23b2c04d905ab6ca6f43b189515eede4c9278",
+      "durationSeconds": 4.633333
+    },
+    {
+      "localName": "loop-13s.mp4",
+      "url": "https://svs.gsfc.nasa.gov/vis/a020000/a020100/a020155/a010298_FromEarthPart1_NTSC.mp4",
+      "sourcePage": "https://svs.gsfc.nasa.gov/20155/",
+      "license": "NASA media usage guidelines; public-domain NASA material",
+      "sha256": "a487a6ad8ae22cfc4c28f59806c4628060ffd2c53d3d96e76e2aecee6ea530ac",
+      "durationSeconds": 13.333333
+    },
+    {
+      "localName": "loop-39s.mp4",
+      "url": "https://svs.gsfc.nasa.gov/vis/a020000/a020100/a020155/a010298_EarthBurst_NTSC.mp4",
+      "sourcePage": "https://svs.gsfc.nasa.gov/20155/",
+      "license": "NASA media usage guidelines; public-domain NASA material",
+      "sha256": "ecacf97e3aa8cc7fb827dc043d02ffd2f88d8171e014a6e819d25c75fb221624",
+      "durationSeconds": 39.7
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "appId": "com.soundforge.desktop",
+  "productName": "Sound Forge",
+  "asar": true,
+  "electronDownload": {
+    "cache": "${env.ELECTRON_CACHE_DIR}"
+  },
+  "files": [
+    "src/**/*",
+    "package.json"
+  ],
+  "directories": {
+    "output": "${env.MACOS_BUILD_DIR}"
+  },
+  "extraResources": [
+    {
+      "from": "vendor/media-tools",
+      "to": "media-tools",
+      "filter": [
+        "ffmpeg",
+        "ffprobe",
+        "LICENSE*",
+        "BUILD-INFO.txt"
+      ]
+    }
+  ],
+  "mac": {
+    "target": [
+      {
+        "target": "dir",
+        "arch": [
+          "universal"
+        ]
+      }
+    ],
+    "category": "public.app-category.music",
+    "minimumSystemVersion": "13.0",
+    "identity": null,
+    "gatekeeperAssess": false,
+    "artifactName": "Sound-Forge-${version}-${arch}.${ext}"
+  }
+}

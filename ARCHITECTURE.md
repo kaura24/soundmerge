@@ -13,6 +13,66 @@
 
 이 문서의 모든 프로젝트 내부 경로는 이 파일이 놓인 폴더를 기준으로 한 상대경로다. 특정 사용자 이름, 특정 PC, 특정 절대경로를 하드코딩하지 않는다.
 
+## Sound Forge 적용 아키텍처
+
+이 저장소는 아래 계약을 사용하는 실제 프로젝트다. 이 섹션은 문서 뒤쪽의 범용 템플릿 예시와 Mac/Windows 동시 릴리즈 규칙보다 우선한다.
+
+```text
+FRAMEWORK_MODE       → project
+제품 unit            → Electron desktop app 한 개
+지원 플랫폼          → macOS Universal (x64 + arm64)
+미지원 플랫폼        → Windows, Linux
+의존성/캐시          → LOCAL_ROOT 아래
+빌드/테스트 작업장   → LOCAL_ROOT 아래
+최종 검증 앱         → releases/<version>/macos/에만 승격
+```
+
+허용되는 제품 구조:
+
+```text
+src/
+├── main/        # Electron main process, IPC, 파일/FFmpeg orchestration
+├── preload/     # renderer에 노출하는 제한된 bridge
+├── renderer/    # GUI, 전체 타임라인 미리보기
+└── shared/      # 순수 도메인 로직과 공통 상수
+
+tests/
+├── unit/        # 순수 로직과 FFmpeg 명령 구성
+├── integration/ # 실제 ffmpeg/ffprobe 및 IPC 경계
+└── e2e/         # Electron GUI 사용자 흐름
+
+assets/          # 앱 아이콘 등 사람이 관리하는 정적 리소스
+config/          # 공유 가능한 빌드/테스트 설정
+releases/        # 검증된 macOS Universal 최종 앱, Git 바이너리 제외
+test-results/    # 최종 테스트 요약만 보관, Git 제외
+```
+
+`package.json`과 lockfile은 프로젝트 루트의 재현 가능한 소스 설정으로 Git에 남긴다. `node_modules`, Electron 다운로드 캐시, 패키징 작업장, 테스트 raw artifact는 프로젝트 안에 만들지 않는다.
+
+Sound Forge의 릴리즈 세트는 Windows 앱이 아니라 동일 버전의 x64/arm64가 결합된 macOS Universal 앱이다. 두 아키텍처의 Mach-O 포함 여부와 실행 가능성을 검증하기 전에는 최종 릴리즈로 승격하지 않는다.
+
+Sound Forge MVP에서는 `WINDOWS_BUILD_DIR`, `windows_artifact`, `windows_builder_os`가 필수값이 아니다. 완전한 릴리즈 구조와 manifest는 다음을 사용한다.
+
+```text
+releases/<version>/
+├── manifest.json
+├── checksums.txt
+└── macos/
+    └── Sound-Forge-<version>-universal.app 또는 배포 패키지
+```
+
+```text
+version
+source_commit
+created_at
+macos_artifact
+macos_architectures  # x64, arm64
+macos_builder_os
+build_commands
+checksums_file
+known_gaps
+```
+
 ## 사용 모드
 
 이 프레임워크에는 두 가지 모드가 있다.
@@ -42,9 +102,10 @@ PRD.md          # 앱 개발의 시작점, 템플릿 원본에서는 빈 파일
 LESSONS.md      # 어려운 문제를 해결했을 때 남기는 재발 방지 기록
 HANDOVER.md     # 다음 AI에게 넘길 한 일 / 해야 할 일
 .gitignore      # Git에 올라가면 안 되는 파일 차단
-scripts/setup/preflight # 스택 중립 사전 점검 스크립트
-local.paths.env # AI 수정 가능 실제 경로/모드 변수 파일
-.env.secret     # Google Drive 안에 둘 수 있는 비밀값 파일, Git 제외, AI 내용 접근 금지
+scripts/setup/preflight     # 스택 중립 사전 점검 스크립트 (bash, Mac/Linux/WSL용)
+scripts/setup/preflight.ps1 # 스택 중립 사전 점검 스크립트 (PowerShell, Windows용)
+local.paths.env # 템플릿 원본에서는 빈/동적 경로 변수 파일, 프로젝트 적용 후 머신별 실제 값 입력
+.env.secret     # 템플릿 원본에서는 빈 비밀값 파일, 필요 시 사용자가 환경 변수 직접 입력, Git 제외
 RESEARCH/       # 선택 작업 폴더: 명시적 deep research 또는 외부 비교 분석 때만 생성, Git 제외
 test-results/   # 선택 결과 폴더: 최종 테스트 결과 요약만 보관, Git 제외
 ```
@@ -88,12 +149,13 @@ Drive에 남기지 않을 것 → 재생성 가능한 실행 환경과 중간 �
 ├── .gitignore               # 범용 Git 제외 규칙
 ├── scripts/
 │   └── setup/
-│       └── preflight        # 스택 중립 사전 점검 스크립트
-├── local.paths.env          # 경로/모드 변수 실제 파일, Git 제외
-└── .env.secret              # 비밀값 실제 파일, Git 제외, AI 내용 접근 금지
+│       ├── preflight        # 스택 중립 사전 점검 스크립트 (bash)
+│       └── preflight.ps1    # 스택 중립 사전 점검 스크립트 (PowerShell)
+├── local.paths.env          # 템플릿 원본에서는 빈/동적 경로 변수 파일, Git 제외
+└── .env.secret              # 템플릿 원본에서는 빈 비밀값 파일, Git 제외, AI 내용 접근 금지
 ```
 
-템플릿 원본 모드에서는 `src/`, `tests/`, `apps/`, `services/`, `packages/`, `docs/`, `config/`, `assets/`, `releases/`, `test-results/`, `sandbox/`, `tmp/`를 만들지 않는다. `scripts/`는 이 템플릿이 제공하는 `scripts/setup/preflight`에 한해 허용한다. 그 밖의 스크립트는 프로젝트 적용 모드에서만 만든다. 사용자가 명시적으로 research를 요청했거나 스킬/MCP가 필수 작업 폴더를 요구하는 경우에는 해당 도구 계약 범위 안에서만 만들 수 있다.
+템플릿 원본 모드에서는 `src/`, `tests/`, `apps/`, `services/`, `packages/`, `docs/`, `config/`, `assets/`, `releases/`, `test-results/`, `sandbox/`, `tmp/`를 만들지 않는다. `scripts/`는 이 템플릿이 제공하는 `scripts/setup/preflight`와 `scripts/setup/preflight.ps1`에 한해 허용한다. 그 밖의 스크립트는 프로젝트 적용 모드에서만 만든다. 사용자가 명시적으로 research를 요청했거나 스킬/MCP가 필수 작업 폴더를 요구하는 경우에는 해당 도구 계약 범위 안에서만 만들 수 있다.
 
 ## 프로젝트 적용 구조
 
@@ -193,6 +255,28 @@ Google Drive 안의 소스 폴더는 허용하지만, Drive를 의존성/빌드 
 2. streaming 모드에서는 필요한 소스 파일이 로컬에서 접근 가능해야 한다.
 3. sync conflict, duplicate copy, 임시 업로드 파일이 보이면 원인을 확인하기 전까지 빌드/커밋/push를 하지 않는다.
 4. Drive가 멈췄거나 동기화 상태를 신뢰할 수 없으면 blocker로 보고한다.
+```
+
+## 크로스 플랫폼 실행 규약
+
+이 프레임워크는 Mac, Windows, Windows WSL을 동시에 지원한다. 같은 프로젝트를 다른 OS에서 열 수 있으므로, 셸 스크립트와 경로 규약은 플랫폼별로 대응한다.
+
+| 환경 | 셸 | preflight 진입점 |
+| --- | --- | --- |
+| Mac | bash/zsh | `./scripts/setup/preflight` |
+| Linux/WSL | bash | `./scripts/setup/preflight` |
+| Windows | PowerShell | `.\scripts\setup\preflight.ps1` |
+
+preflight 스크립트는 bash 버전과 PowerShell 버전이 동일한 검사를 수행한다. 두 파일의 검사 항목이 달라지면 안 된다.
+
+프로젝트 적용 모드에서 `scripts/dev/`나 `scripts/maintenance/` 아래에 자동화 스크립트를 추가할 때도 같은 규칙을 따른다. bash 전용 스크립트는 Mac/WSL에서만 동작하고, PowerShell 전용 스크립트는 Windows에서만 동작한다. 두 환경 모두에서 필요한 스크립트는 양쪽 버전을 함께 만든다.
+
+경로 구분자:
+
+```text
+ARCHITECTURE.md와 AGENTS.md의 경로 표기는 `/`(슬래시)를 기준으로 한다.
+실제 실행에서는 OS에 맞게 변환한다.
+템플릿 원본의 local.paths.env는 빈값 또는 동적 변수식만 둔다. 프로젝트 적용 후에는 해당 머신의 실제 경로를 쓴다.
 ```
 
 ## 실패 처리 아키텍처
@@ -378,7 +462,6 @@ service-account*.json
 
 ```text
 RESEARCH/
-.omx/
 test-results/
 스킬/MCP가 명시적으로 요구하는 도구 작업 폴더
 ```
@@ -425,13 +508,74 @@ PREFLIGHT_COMMAND=./scripts/setup/preflight
 
 `PREFLIGHT_COMMAND`는 프로젝트 적용 모드에서 실제 검사 스크립트가 위치해야 하는 표준 진입점이다. 템플릿 원본 모드에서는 파일을 만들지 않는다.
 
+### LOCAL_ROOT 컨벤션
+
+`LOCAL_ROOT`는 클라우드 동기화가 되지 않는 로컬 디스크 경로다. 모든 머신에서 동일한 규칙을 따른다.
+
+| 환경 | LOCAL_ROOT 기본값 | 예시 |
+| --- | --- | --- |
+| Windows | `C:\dev\{PROJECT_NAME}` | `C:\dev\my-app` |
+| Mac | `~/dev/{PROJECT_NAME}` | `~/dev/my-app` |
+| WSL | `~/dev/{PROJECT_NAME}` | `~/dev/my-app` |
+
+`LOCAL_ROOT` 아래 구조:
+
+```text
+{LOCAL_ROOT}/
+├── envs/{PROJECT_NAME}/     # 가상환경 (.venv)
+├── caches/{PROJECT_NAME}/   # 패키지 캐시 (pip, npm, cargo 등)
+├── builds/{PROJECT_NAME}/   # 빌드 작업장
+│   ├── macos/
+│   └── windows/
+└── tests/{PROJECT_NAME}/    # 테스트 실행 환경
+```
+
+규칙:
+
+```text
+1. LOCAL_ROOT는 Google Drive, OneDrive, Dropbox 등 클라우드 동기화 경로 밖이어야 한다.
+2. 같은 프로젝트를 여러 머신에서 사용할 때, LOCAL_ROOT의 절대경로는 머신마다 다를 수 있다.
+3. 공용 템플릿 원본의 local.paths.env는 빈값 또는 동적 변수식만 둔다.
+4. 프로젝트 적용 후 각 머신 복사본의 local.paths.env에 해당 머신의 실제 LOCAL_ROOT를 기록한다.
+5. Git 제외는 원격 Git 유출과 커밋 충돌을 막는 장치다. Google Drive 동기화 충돌이 생기는 환경에서는 이 파일을 빈 템플릿값으로 되돌리거나 머신별 복사본에서만 실제 값을 유지한다.
+6. LOCAL_ROOT 아래 폴더는 언제든 삭제하고 다시 만들 수 있어야 한다.
+```
+
+`local.paths.env` 작성 예시 (Windows):
+
+```text
+FRAMEWORK_MODE=project
+PROJECT_NAME=my-app
+PROJECT_ROOT=D:\Google Drive\projects\my-app
+CLOUD_SYNC_ROOT=D:\Google Drive
+LOCAL_ROOT=C:\dev\my-app
+ENV_DIR=C:\dev\my-app\envs\my-app
+CACHE_DIR=C:\dev\my-app\caches\my-app
+BUILD_DIR=C:\dev\my-app\builds\my-app
+TEST_WORK_DIR=C:\dev\my-app\tests\my-app
+```
+
+`local.paths.env` 작성 예시 (Mac):
+
+```text
+FRAMEWORK_MODE=project
+PROJECT_NAME=my-app
+PROJECT_ROOT=/Users/me/Google Drive/projects/my-app
+CLOUD_SYNC_ROOT=/Users/me/Google Drive
+LOCAL_ROOT=/Users/me/dev/my-app
+ENV_DIR=/Users/me/dev/my-app/envs/my-app
+CACHE_DIR=/Users/me/dev/my-app/caches/my-app
+BUILD_DIR=/Users/me/dev/my-app/builds/my-app
+TEST_WORK_DIR=/Users/me/dev/my-app/tests/my-app
+```
+
 ## 환경 파일 분리 정책
 
 환경 파일은 두 종류로 나눈다.
 
 ```text
-local.paths.env          # 실제 파일, Git 제외, AI 수정 가능
-.env.secret              # Git 제외, AI 내용 접근 금지
+local.paths.env          # 템플릿 원본에서는 빈/동적 값, 프로젝트 적용 후 머신별 실제 경로
+.env.secret              # 템플릿 원본에서는 빈 파일, 필요 시 사용자가 비밀 환경 변수 직접 입력
 ```
 
 `local.paths.env`에는 비밀이 아닌 경로/모드 값만 둔다.
@@ -456,12 +600,14 @@ UNIT_CONFIG=
 PREFLIGHT_COMMAND=
 ```
 
-`.env.secret`에는 API 키, 토큰, 비밀번호, 인증값을 둔다. AI는 `.env.secret` 파일의 존재 여부만 확인할 수 있고, 내용에는 접근하지 않는다.
+`.env.secret`에는 필요 시 API 키, 토큰, 비밀번호, 인증값 같은 비밀 환경 변수를 둔다. 템플릿 원본에서는 빈 파일로 유지한다. AI는 `.env.secret` 파일의 존재 여부만 확인할 수 있고, 내용에는 접근하지 않는다.
 
 파일 복사 기준:
 
 ```text
 local.paths.env와 .env.secret은 개인 사용을 위한 실제 복사 파일이다.
+공용 템플릿 원본에서는 local.paths.env를 빈값 또는 동적 변수식으로 유지하고, .env.secret은 빈 파일로 유지한다.
+프로젝트 적용 후 각 머신에서는 local.paths.env 값을 해당 머신에 맞게 채운다.
 두 파일은 Git 제외 대상이므로, Git 저장소로 템플릿을 관리할 때는 누락될 수 있다.
 개인 프레임워크는 파일 복사 방식으로 운영한다.
 ```
@@ -549,7 +695,7 @@ release-check
 
 프로젝트 적용 모드에서 의존성 설치, 테스트, 빌드, 릴리즈, 원격 push 전에는 `PREFLIGHT_COMMAND`를 통과해야 한다.
 
-템플릿 원본 모드에는 스택 중립 `scripts/setup/preflight`만 둔다. 프로젝트 적용 모드에서는 이 진입점을 프로젝트 상황에 맞게 확장할 수 있다.
+템플릿 원본 모드에는 스택 중립 `scripts/setup/preflight`와 Windows용 `scripts/setup/preflight.ps1`만 둔다. 프로젝트 적용 모드에서는 이 진입점을 프로젝트 상황에 맞게 확장할 수 있다.
 
 Preflight 최소 검사:
 
@@ -769,3 +915,108 @@ AI는 작업 전에 다음을 확인한다.
 5. 내부 설치만 가능한 도구라면 실행하지 않고 blocker로 보고한다.
 6. 여러 tool call을 실행하기 전에는 무엇을 확인/수정할지 짧게 보고한다.
 7. 원격 push 전에는 원격 Push 게이트를 통과한다.
+
+## 환경 부트스트랩 워크플로
+
+템플릿을 복사한 후 새 머신에서 개발 환경을 세팅하는 표준 절차다. 이 절차는 프로젝트 적용 모드에서 사용한다.
+
+### Python 프로젝트 (uv 기준)
+
+uv는 Python 프로젝트의 권장 패키지 매니저다. `UV_PROJECT_ENVIRONMENT` 환경변수를 사용하면 가상환경이 프로젝트 내부가 아닌 `ENV_DIR`에 생성된다.
+
+```text
+1. uv가 설치되어 있는지 확인한다.
+   uv --version
+
+2. local.paths.env의 LOCAL_ROOT, ENV_DIR를 채운다.
+
+3. ENV_DIR 경로에 가상환경을 만든다.
+
+   # Mac/WSL
+   export UV_PROJECT_ENVIRONMENT="${ENV_DIR}"
+   cd <PROJECT_ROOT>
+   uv sync
+
+   # Windows PowerShell
+   $env:UV_PROJECT_ENVIRONMENT = "${ENV_DIR}"
+   cd <PROJECT_ROOT>
+   uv sync
+
+4. 가상환경 활성화:
+   # Mac/WSL
+   source ${ENV_DIR}/bin/activate
+
+   # Windows PowerShell
+   & ${ENV_DIR}\Scripts\Activate.ps1
+
+5. 이후 uv add/uv remove로 의존성을 변경하면
+   pyproject.toml과 uv.lock이 프로젝트 폴더(Drive)에 업데이트되고,
+   실제 패키지는 ENV_DIR(로컬)에만 설치된다.
+```
+
+### Node/Tauri 프로젝트
+
+npm/pnpm은 기본적으로 `node_modules`를 프로젝트 내부에 만든다. 이것은 Google Drive 동기화 대상이 되므로, Node 의존 프로젝트는 추가 전략이 필요하다.
+
+```text
+전략 1: LOCAL_ROOT에 프로젝트 미러를 만들고 거기서 설치/실행
+  1. LOCAL_ROOT 아래에 프로젝트 작업 폴더를 만든다.
+  2. 소스 파일은 Drive에서 읽고, node_modules는 LOCAL_ROOT에만 둔다.
+  3. symlink 또는 junction으로 소스를 연결하거나, 빌드 시에만 LOCAL_ROOT에 복사한다.
+
+전략 2: pnpm의 가상 저장소 기능 활용
+  pnpm은 --store-dir로 패키지 저장소를 외부로 보낼 수 있다.
+  단, node_modules/.pnpm은 여전히 프로젝트 내부에 생기므로 완전한 해결은 아니다.
+
+전략 3: Tauri 전용
+  Tauri 프로젝트는 src-tauri/를 Rust(cargo) 기반으로 빌드한다.
+  cargo의 CARGO_TARGET_DIR를 BUILD_DIR로 지정하면 빌드 산출물을 외부로 보낼 수 있다.
+  export CARGO_TARGET_DIR=${BUILD_DIR}/cargo-target
+```
+
+npm/pnpm 캐시 분리:
+
+```text
+npm config set cache ${CACHE_DIR}/npm-cache
+pnpm config set store-dir ${CACHE_DIR}/pnpm-store
+```
+
+### 부트스트랩 검증
+
+환경 부트스트랩 후 preflight를 실행하여 설정이 올바른지 확인한다.
+
+```text
+# Mac/WSL
+./scripts/setup/preflight
+
+# Windows PowerShell
+.\scripts\setup\preflight.ps1
+```
+
+## 템플릿 복사 후 체크리스트
+
+이 템플릿을 새 프로젝트 폴더로 복사한 후 수행할 작업이다.
+
+```text
+1. [ ] FRAMEWORK_MODE=project로 변경 (local.paths.env)
+2. [ ] PROJECT_NAME 설정
+3. [ ] PROJECT_ROOT를 현재 프로젝트 폴더의 절대경로로 설정
+4. [ ] CLOUD_SYNC_ROOT를 Google Drive 루트 경로로 설정
+5. [ ] LOCAL_ROOT를 로컬 디스크 경로로 설정 (컨벤션: Windows C:\dev\{name}, Mac ~/dev/{name})
+6. [ ] ENV_DIR, CACHE_DIR, BUILD_DIR, TEST_WORK_DIR를 LOCAL_ROOT 기준으로 설정
+7. [ ] LOCAL_ROOT 폴더 구조 생성 (mkdir)
+8. [ ] PRD.md에 프로젝트 요구사항 작성
+9. [ ] preflight 실행하여 설정 검증
+10. [ ] 환경 부트스트랩 실행 (uv sync 등)
+11. [ ] .env.secret에 필요한 비밀값 직접 입력 (AI 개입 불가)
+```
+
+다른 머신에서 같은 프로젝트를 처음 여는 경우:
+
+```text
+1. [ ] Google Drive 동기화로 프로젝트 폴더가 접근 가능한지 확인
+2. [ ] local.paths.env를 해당 머신에 맞게 작성 (공용 템플릿 원본은 빈/동적 값 유지)
+3. [ ] LOCAL_ROOT 폴더 구조 생성
+4. [ ] 환경 부트스트랩 실행
+5. [ ] preflight 실행하여 설정 검증
+```

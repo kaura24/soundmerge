@@ -6,6 +6,21 @@
 
 이 문서의 모든 프로젝트 내부 경로는 이 `AGENTS.md`가 놓인 폴더를 기준으로 한 상대경로다. 사용자 홈 폴더, Google Drive의 실제 절대경로, 특정 PC 경로를 이 문서에 하드코딩하지 않는다.
 
+## Sound Forge 프로젝트 오버라이드
+
+이 저장소는 템플릿 원본이 아니라 `FRAMEWORK_MODE=project`인 Sound Forge 실제 프로젝트다. 이 섹션은 아래의 범용 템플릿 규칙보다 우선한다.
+
+```text
+필수 플랫폼 세트       → macOS Universal (x64 + arm64)
+MVP 제외 플랫폼        → Windows, Linux
+최종 릴리즈 조건       → x64/arm64 패키징 검증을 통과한 동일 macOS Universal 앱
+Windows 릴리즈 조건    → 이 프로젝트의 MVP에는 적용하지 않음
+```
+
+아래 문서의 “Mac/Windows 모두 성공” 또는 “반쪽 릴리즈” 규칙은 PRD가 두 플랫폼을 요구하는 프로젝트에만 적용한다. Sound Forge에서는 Intel Mac과 Apple Silicon Mac 검증이 그 플랫폼 세트 조건을 대신한다.
+
+프로젝트 적용 모드이므로 `PRD.md`와 `ARCHITECTURE.md`가 허용한 `src/`, `tests/`, `config/`, `assets/`, `releases/`, `test-results/`를 실제 앱 구현에 사용할 수 있다.
+
 ## 운영 파일
 
 AI는 작업 전에 아래 파일과 허용된 작업 폴더를 역할에 맞게 확인한다.
@@ -17,9 +32,10 @@ AI는 작업 전에 아래 파일과 허용된 작업 폴더를 역할에 맞게
 ./LESSONS.md      # 실제 프로젝트에서 어려운 문제를 해결한 기록
 ./HANDOVER.md     # 실제 프로젝트에서 다음 AI에게 넘길 한 일 / 해야 할 일
 ./.gitignore      # Git에 올라가면 안 되는 파일 차단
-./scripts/setup/preflight # 스택 중립 사전 점검 스크립트
-./local.paths.env # AI가 다룰 수 있는 실제 경로/모드 변수 파일
-./.env.secret     # Google Drive 안에 둘 수 있는 사용자 전용 실제 비밀값 파일, Git 제외, 내용 접근 금지
+./scripts/setup/preflight     # 스택 중립 사전 점검 스크립트 (bash, Mac/Linux/WSL용)
+./scripts/setup/preflight.ps1 # 스택 중립 사전 점검 스크립트 (PowerShell, Windows용)
+./local.paths.env # 템플릿 원본에서는 빈/동적 경로 변수 파일, 프로젝트 적용 후 머신별 실제 값 입력
+./.env.secret     # 템플릿 원본에서는 빈 비밀값 파일, 필요 시 사용자가 환경 변수 직접 입력, Git 제외, 내용 접근 금지
 ./RESEARCH/       # 명시적 deep research 요청 때만 생성하는 연구 작업장, Git 제외
 ./test-results/   # 프로젝트 적용 모드에서 최종 테스트 결과 요약만 보관, Git 제외
 ```
@@ -83,7 +99,7 @@ FRAMEWORK_MODE=project   # 프로젝트 적용 모드
 3. `FRAMEWORK_MODE`가 없고 사용자가 실제 앱/서비스/프로젝트 구현을 요청하면 프로젝트 적용 모드 후보로 본다.
 4. 그래도 애매하면 실제 폴더 생성, 의존성 설치, 빌드를 하지 않는다. 먼저 blocker로 보고한다.
 
-템플릿 원본 모드에서는 `./src/`, `./tests/`, `./apps/`, `./services/`, `./packages/`, `./docs/`, `./config/`, `./assets/`, `./releases/`, `./test-results/` 같은 실제 프로젝트 폴더를 만들지 않는다. `./scripts/`는 이 템플릿이 제공하는 `./scripts/setup/preflight`에 한해 허용한다. 다만 사용자가 명시적으로 deep research를 요청한 경우 `./RESEARCH/`를 만들 수 있고, 스킬/MCP가 필수로 요구하는 작업 폴더가 있으면 해당 도구 계약 범위 안에서만 만들 수 있다. 프로젝트 적용 모드에서만 사용자가 요청한 경우 표준 빈 폴더를 만들 수 있다.
+템플릿 원본 모드에서는 `./src/`, `./tests/`, `./apps/`, `./services/`, `./packages/`, `./docs/`, `./config/`, `./assets/`, `./releases/`, `./test-results/` 같은 실제 프로젝트 폴더를 만들지 않는다. `./scripts/`는 이 템플릿이 제공하는 `./scripts/setup/preflight`와 `./scripts/setup/preflight.ps1`에 한해 허용한다. 다만 사용자가 명시적으로 deep research를 요청한 경우 `./RESEARCH/`를 만들 수 있고, 스킬/MCP가 필수로 요구하는 작업 폴더가 있으면 해당 도구 계약 범위 안에서만 만들 수 있다. 프로젝트 적용 모드에서만 사용자가 요청한 경우 표준 빈 폴더를 만들 수 있다.
 
 ## Architecture 이행 정책
 
@@ -241,7 +257,7 @@ AI는 다음을 하지 않는다.
 
 1. 새 최상위 폴더를 임의로 만들지 않는다.
 2. 템플릿 원본 모드에서 실제 프로젝트 구조를 만들지 않는다.
-3. 템플릿 원본 모드에서 `scripts/setup/preflight` 밖의 새 스크립트를 만들지 않는다.
+3. 템플릿 원본 모드에서 `scripts/setup/preflight`와 `scripts/setup/preflight.ps1` 밖의 새 스크립트를 만들지 않는다.
 4. 템플릿 원본 모드에서 `PRD.md`, `LESSONS.md`, `HANDOVER.md`에 내용을 채우지 않는다.
 5. 프로젝트 적용 모드에서 빈 `PRD.md` 상태로 구현을 시작하지 않는다.
 6. 프로젝트 내부에 `.venv`, `venv`, `env`, `node_modules`, `dist`, `build`, `.next`, `target`, 캐시 폴더를 만들지 않는다.
@@ -427,16 +443,16 @@ UNIT_CONFIG=./config/units.json
 PREFLIGHT_COMMAND=./scripts/setup/preflight
 ```
 
-이 값들은 `local.paths.env` 또는 실행 환경에서 관리한다. AI는 프로젝트 적용 모드에서 `local.paths.env`를 생성/수정할 수 있다. 단, `LOCAL_ROOT` 후보를 새로 만들 수는 없고 기존 후보를 기록하거나 사용자가 확정한 값을 반영하는 것만 허용된다.
+이 값들은 `local.paths.env` 또는 실행 환경에서 관리한다. 템플릿 원본에서는 `local.paths.env`를 빈값 또는 동적 변수식으로 유지한다. AI는 프로젝트 적용 모드에서 `local.paths.env`를 생성/수정할 수 있다. 단, `LOCAL_ROOT` 후보를 새로 만들 수는 없고 기존 후보를 기록하거나 사용자가 확정한 값을 반영하는 것만 허용된다.
 
 환경 파일 분리:
 
 ```text
-local.paths.env          # AI 수정 가능: 경로, 모드, 빌드 작업장
-.env.secret             # AI 내용 접근 금지: API 키, 토큰, 인증값
+local.paths.env          # 템플릿 원본에서는 빈/동적 값, 프로젝트 적용 후 머신별 실제 경로
+.env.secret             # 템플릿 원본에서는 빈 파일, AI 내용 접근 금지: API 키, 토큰, 인증값
 ```
 
-`local.paths.env`에는 API 키, 토큰, 비밀번호, 인증 파일 경로를 넣지 않는다. `.env.secret`에는 비밀값만 두며 AI는 파일 존재 여부만 확인할 수 있고 내용에는 접근하지 않는다.
+`local.paths.env`에는 API 키, 토큰, 비밀번호, 인증 파일 경로를 넣지 않는다. `.env.secret`에는 필요 시 비밀 환경 변수만 두며, 템플릿 원본에서는 빈 파일로 유지한다. AI는 파일 존재 여부만 확인할 수 있고 내용에는 접근하지 않는다.
 
 빌드 실행 조건:
 

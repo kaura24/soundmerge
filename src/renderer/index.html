@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: file:; media-src 'self' blob: file:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Sound Forge</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./renderer.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="masthead">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">
+            <span class="brand-mark__line"></span>
+            <span class="brand-mark__core"></span>
+            <span class="brand-mark__line"></span>
+          </div>
+          <div>
+            <p class="eyebrow">Mastering instrument · 01</p>
+            <h1>Sound Forge</h1>
+          </div>
+        </div>
+
+        <div class="system-readout" aria-label="Application status">
+          <span class="status-lamp" aria-hidden="true"></span>
+          <span id="systemStatus">ENGINE STANDBY</span>
+          <span class="readout-divider" aria-hidden="true"></span>
+          <span id="appVersion">v—</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="preview-bay" aria-labelledby="previewHeading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Program monitor</p>
+              <h2 id="previewHeading">Composition preview</h2>
+            </div>
+            <div class="format-stamp" aria-label="Output format">
+              <span>1920 × 1080</span>
+              <span>30P · BT.709</span>
+            </div>
+          </div>
+
+          <div class="monitor-frame" id="monitorFrame">
+            <div class="monitor-toolbar" aria-hidden="true">
+              <span>PROGRAM</span>
+              <span class="monitor-crosshair">+</span>
+              <span>16:9</span>
+            </div>
+
+            <div class="canvas-wrap">
+              <canvas
+                id="previewCanvas"
+                width="1280"
+                height="720"
+                aria-label="Combined audio and visual preview"
+              ></canvas>
+              <div class="monitor-placeholder" id="monitorPlaceholder">
+                <div class="placeholder-reticle" aria-hidden="true">
+                  <span></span>
+                </div>
+                <p>Awaiting visual source</p>
+                <span>Select a still image or H.264 video</span>
+              </div>
+              <video
+                id="resultPlayer"
+                class="result-player"
+                controls
+                playsinline
+                hidden
+                aria-label="Rendered output playback"
+              ></video>
+              <div class="safe-area" aria-hidden="true"></div>
+            </div>
+
+            <div class="transport" aria-label="Preview transport">
+              <button
+                class="transport-button"
+                id="playPauseButton"
+                type="button"
+                disabled
+                aria-label="Play preview"
+              >
+                <svg
+                  id="playIcon"
+                  viewBox="0 0 24 24"
+                  role="presentation"
+                  focusable="false"
+                >
+                  <path d="M8 5.7v12.6L18.5 12 8 5.7Z"></path>
+                </svg>
+                <svg
+                  id="pauseIcon"
+                  viewBox="0 0 24 24"
+                  role="presentation"
+                  focusable="false"
+                  hidden
+                >
+                  <path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"></path>
+                </svg>
+              </button>
+
+              <span class="timecode" id="currentTime">00:00</span>
+              <div class="timeline-wrap">
+                <input
+                  id="timeline"
+                  class="timeline"
+                  type="range"
+                  min="0"
+                  max="0"
+                  step="0.01"
+                  value="0"
+                  disabled
+                  aria-label="Preview position"
+                />
+                <span class="timeline-ticks" aria-hidden="true"></span>
+              </div>
+              <span class="timecode timecode--total" id="totalTime">00:00</span>
+            </div>
+          </div>
+
+          <div class="preview-note">
+            <span class="note-index">A</span>
+            <p>
+              The audio track sets the master duration. Moving footage loops from
+              frame one and stops precisely with the soundtrack.
+            </p>
+          </div>
+        </section>
+
+        <aside class="control-rack" aria-label="Render controls">
+          <div class="mode-selector" role="tablist" aria-label="Composition mode">
+            <button
+              id="modeSingleBtn"
+              class="mode-tab mode-tab--active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+            >
+              Single Pair
+            </button>
+            <button
+              id="modeMultiBtn"
+              class="mode-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+            >
+              Multi-Pair
+            </button>
+          </div>
+
+          <div id="singleModeSection">
+
+          <section class="source-card" id="audioCard" aria-labelledby="audioHeading">
+            <div class="card-index" aria-hidden="true">01</div>
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">Master clock</p>
+                <h2 id="audioHeading">Audio track</h2>
+              </div>
+              <span class="source-type">MP3</span>
+            </div>
+
+            <button class="source-picker" id="selectAudioButton" type="button">
+              <span class="picker-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M9 17.5a3.5 3.5 0 1 1-2-3.16V6.5l11-2v10a3.5 3.5 0 1 1-2-3.16V8.08L9 9.35v8.15Z"></path>
+                </svg>
+              </span>
+              <span class="picker-copy">
+                <strong id="audioName">Choose an audio file</strong>
+                <span id="audioMeta">MP3 · one track</span>
+              </span>
+              <span class="picker-action">SELECT</span>
+            </button>
+
+            <div class="signal-strip" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span>
+            </div>
+
+            <label class="artwork-option" for="useArtworkCheckbox">
+              <input id="useArtworkCheckbox" type="checkbox" disabled />
+              <span>
+                <strong>Use artwork embedded in MP3</strong>
+                <small>Use the cover image stored in the audio file</small>
+              </span>
+            </label>
+          </section>
+
+          <section class="source-card" id="visualCard" aria-labelledby="visualHeading">
+            <div class="card-index" aria-hidden="true">02</div>
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">Picture source</p>
+                <h2 id="visualHeading">Visual layer</h2>
+              </div>
+              <span class="source-type">JPG · PNG · MP4</span>
+            </div>
+
+            <button class="source-picker" id="selectVisualButton" type="button">
+              <span class="picker-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path
+                    d="M3.5 5.5h17v13h-17v-13Zm2 2v7.25l3.4-3.4 2.55 2.55 2.2-2.2 4.85 4.85V7.5h-13Zm9.75 3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"
+                  ></path>
+                </svg>
+              </span>
+              <span class="picker-copy">
+                <strong id="visualName">Choose a visual file</strong>
+                <span id="visualMeta">Still image or looping H.264 video</span>
+              </span>
+              <span class="picker-action">SELECT</span>
+            </button>
+          </section>
+
+          </div>
+
+          <div id="multiModeSection" hidden>
+            <section class="source-card" id="multiPairCard" aria-labelledby="multiPairHeading">
+              <div class="card-heading">
+                <div>
+                  <p class="eyebrow">Sequence composer</p>
+                  <h2 id="multiPairHeading">Image + Audio pairs</h2>
+                </div>
+                <span class="source-type">MULTI</span>
+              </div>
+              <div class="pair-list" id="pairList"></div>
+              <button class="add-pair-button" id="addPairBtn" type="button">
+                + Add image and audio pair
+              </button>
+            </section>
+          </div>
+
+          <section class="output-card" aria-labelledby="outputHeading">
+            <div class="card-index" aria-hidden="true">03</div>
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">Destination</p>
+                <h2 id="outputHeading">Output file</h2>
+              </div>
+              <span class="source-type">MP4</span>
+            </div>
+
+            <button class="output-picker" id="selectOutputButton" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M3 6.5h7l2 2h9v10H3v-12Zm2 4v6h14v-6H5Z"></path>
+              </svg>
+              <span>
+                <strong id="outputName">Choose destination</strong>
+                <small id="outputPath">Set the folder and filename</small>
+              </span>
+              <span class="picker-action">BROWSE</span>
+            </button>
+          </section>
+
+          <button class="reset-button" id="resetButton" type="button">
+            Reset session
+          </button>
+
+          <div class="error-panel" id="errorPanel" role="alert" hidden>
+            <span aria-hidden="true">!</span>
+            <div>
+              <strong>Could not complete the operation</strong>
+              <p id="errorMessage"></p>
+            </div>
+            <button id="dismissErrorButton" type="button" aria-label="Dismiss error">
+              ×
+            </button>
+          </div>
+
+          <button
+            class="forge-button"
+            id="renderButton"
+            type="button"
+            aria-label="Create MP4"
+            disabled
+          >
+            <span class="forge-button__label">Forge master</span>
+            <span class="forge-button__spec">H.264 · AAC · YOUTUBE READY</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="m13.7 4 6.3 8-6.3 8-1.55-1.22L16.7 13H4v-2h12.7l-4.55-5.78L13.7 4Z"></path>
+            </svg>
+          </button>
+
+          <div class="busy-panel" id="busyPanel" role="status" aria-live="polite" hidden>
+            <div class="busy-orbit" aria-hidden="true"><span></span></div>
+            <div>
+              <strong>Forging your master</strong>
+              <p>Encoding the full soundtrack and visual loop…</p>
+            </div>
+          </div>
+
+          <section
+            class="completion-card"
+            id="completionCard"
+            aria-labelledby="completionHeading"
+            aria-live="polite"
+            hidden
+          >
+            <div class="completion-seal" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="m5 12.5 4.1 4.1L19.5 6.2 18 4.7l-8.9 8.9L6.5 11 5 12.5Z"></path>
+              </svg>
+            </div>
+            <div class="completion-copy">
+              <p class="eyebrow">Master complete</p>
+              <h2 id="completionHeading">Ready for playback</h2>
+              <p id="completionPath"></p>
+            </div>
+            <div class="completion-actions">
+              <button
+                id="playOutputButton"
+                type="button"
+                aria-label="Play output in app"
+              >
+                Play here
+              </button>
+              <button id="openOutputButton" type="button">Open in player</button>
+              <button id="revealOutputButton" type="button">Reveal in Finder</button>
+            </div>
+          </section>
+        </aside>
+      </main>
+
+      <footer class="app-footer">
+        <span>SOUND FORGE / MASTERING DESK</span>
+        <span>MP3 + VISUAL → YOUTUBE MP4</span>
+      </footer>
+    </div>
+  </body>
+</html>

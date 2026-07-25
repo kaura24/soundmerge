@@ -8,6 +8,7 @@ const { spawn } = require('node:child_process');
 
 const {
   InputValidationError,
+  classifyVisualPath,
   parseDurationSeconds,
   validateInputPaths,
 } = require('../shared/media-domain');
@@ -210,6 +211,72 @@ function streamOfType(metadata, streamType) {
   );
 }
 
+function findEmbeddedArtwork(metadata) {
+  return metadata?.streams?.find(
+    (stream) =>
+      stream &&
+      stream.codec_type === 'video' &&
+      (stream.disposition?.attached_pic === 1 ||
+        stream.disposition?.still_image === 1),
+  );
+}
+
+function artworkExtension(stream) {
+  switch (String(stream?.codec_name || '').toLowerCase()) {
+    case 'png':
+      return '.png';
+    case 'jpeg2000':
+      return '.jp2';
+    default:
+      return '.jpg';
+  }
+}
+
+function buildArtworkExtractArgs({ audioPath, streamIndex, outputPath }) {
+  if (typeof audioPath !== 'string' || audioPath.trim() === '') {
+    throw new TypeError('An MP3 file path is required.');
+  }
+  if (!Number.isInteger(streamIndex) || streamIndex < 0) {
+    throw new TypeError('An embedded artwork stream index is required.');
+  }
+  if (typeof outputPath !== 'string' || outputPath.trim() === '') {
+    throw new TypeError('An artwork output path is required.');
+  }
+
+  return [
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-y',
+    '-i',
+    audioPath,
+    '-map',
+    `0:${streamIndex}`,
+    '-frames:v',
+    '1',
+    '-c:v',
+    'copy',
+    '-an',
+    outputPath,
+  ];
+}
+
+async function extractEmbeddedArtwork(
+  { ffmpegPath, audioPath, streamIndex, outputPath },
+  { runProcessImpl = runProcess, spawnImpl = spawn } = {},
+) {
+  if (!ffmpegPath) {
+    throw new TypeError('ffmpegPath is required.');
+  }
+
+  await runProcessImpl(
+    ffmpegPath,
+    buildArtworkExtractArgs({ audioPath, streamIndex, outputPath }),
+    { spawnImpl },
+  );
+  return outputPath;
+}
+
 function formatNames(metadata) {
   return new Set(
     String(metadata.format && metadata.format.format_name)
@@ -325,15 +392,19 @@ function durationArgument(value) {
 
 function buildVisualFilter(duration) {
   return [
-    '[0:v:0]split=2[background_source][foreground_source]',
-    '[background_source]scale=1920:1080:force_original_aspect_ratio=increase,' +
-      'crop=1920:1080,gblur=sigma=30,setsar=1[background]',
-    '[foreground_source]scale=1920:1080:force_original_aspect_ratio=decrease,' +
-      'setsar=1[foreground]',
+    '[0:v:0]format=nv12,split=2[background_source][foreground_source]',
+    '[background_source]scale=480:270:force_original_aspect_ratio=increase,' +
+      'crop=480:270,' +
+      'scale=1920:1080:flags=bicubic:out_range=tv,' +
+      'setsar=1,format=nv12[background]',
+    '[foreground_source]scale=1920:1080:' +
+      'force_original_aspect_ratio=decrease:out_range=tv,' +
+      'setsar=1,format=nv12[foreground]',
     '[background][foreground]overlay=(W-w)/2:(H-h)/2:shortest=0,' +
-      `fps=30,format=yuv420p,trim=duration=${duration},` +
+      `fps=30,format=nv12,trim=duration=${duration},` +
       'setpts=PTS-STARTPTS,' +
-      'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]',
+      'setparams=range=limited:color_primaries=bt709:' +
+      'color_trc=bt709:colorspace=bt709[v]',
     `[1:a:0]apad,atrim=duration=${duration},asetpts=N/SR/TB[a]`,
   ].join(';');
 }
@@ -367,7 +438,7 @@ function buildFfmpegArgs({
   const args = ['-hide_banner', '-loglevel', 'error', '-y'];
 
   if (resolvedVisualType === 'image') {
-    args.push('-loop', '1', '-framerate', '30', '-i', visualPath);
+    args.push('-loop', '1', '-framerate', '1', '-i', visualPath);
   } else {
     args.push('-stream_loop', '-1', '-i', visualPath);
   }
@@ -382,13 +453,15 @@ function buildFfmpegArgs({
     '-map',
     '[a]',
     '-c:v',
-    'libx264',
+    'h264_videotoolbox',
     '-profile:v',
     'high',
     '-level:v',
     '4.0',
-    '-preset',
-    'medium',
+    '-allow_sw',
+    '1',
+    '-realtime',
+    '0',
     '-b:v',
     '8M',
     '-maxrate',
@@ -396,7 +469,7 @@ function buildFfmpegArgs({
     '-bufsize',
     '16M',
     '-pix_fmt',
-    'yuv420p',
+    'nv12',
     '-r',
     '30',
     '-fps_mode',
@@ -464,6 +537,7 @@ async function createMediaFile(
     visualType,
     duration,
     outputPath,
+    overwrite = false,
   },
   {
     fsPromises = fsPromisesDefault,
@@ -498,7 +572,8 @@ async function createMediaFile(
   }
 
   await fsPromises.access(path.dirname(absoluteOutputPath), fs.constants.W_OK);
-  if (await pathExists(absoluteOutputPath, fsPromises)) {
+  const outputExisted = await pathExists(absoluteOutputPath, fsPromises);
+  if (!overwrite && outputExisted) {
     throw new InputValidationError(
       `The output file already exists: ${absoluteOutputPath}`,
       'OUTPUT_EXISTS',
@@ -524,7 +599,269 @@ async function createMediaFile(
   try {
     await runProcessImpl(ffmpegPath, args, { spawnImpl });
 
-    if (await pathExists(absoluteOutputPath, fsPromises)) {
+    if (
+      !outputExisted &&
+      (await pathExists(absoluteOutputPath, fsPromises))
+    ) {
+      throw new InputValidationError(
+        `The output file was created by another process: ${absoluteOutputPath}`,
+        'OUTPUT_EXISTS',
+      );
+    }
+
+    await fsPromises.rename(tempPath, absoluteOutputPath);
+  } catch (error) {
+    await fsPromises.rm(tempPath, { force: true }).catch(() => {});
+    throw error;
+  }
+
+  return absoluteOutputPath;
+}
+
+function buildMultiPairFfmpegArgs({ pairs, outputPath }) {
+  if (!Array.isArray(pairs) || pairs.length === 0) {
+    throw new InputValidationError(
+      'At least one image and audio pair is required.',
+      'PAIRS_REQUIRED',
+    );
+  }
+  if (
+    typeof outputPath !== 'string' ||
+    path.extname(outputPath).toLowerCase() !== '.mp4'
+  ) {
+    throw new InputValidationError(
+      'The output path must end in .mp4.',
+      'INVALID_OUTPUT_EXTENSION',
+    );
+  }
+
+  const args = ['-hide_banner', '-loglevel', 'error', '-y'];
+  const filterParts = [];
+  const concatInputs = [];
+  let totalDurationSeconds = 0;
+
+  pairs.forEach((pair, i) => {
+    const visualType = pair.visualType || 'image';
+    if (visualType === 'image') {
+      args.push('-loop', '1', '-framerate', '1', '-i', pair.visualPath);
+    } else {
+      args.push('-stream_loop', '-1', '-i', pair.visualPath);
+    }
+    args.push('-i', pair.audioPath);
+
+    const durArg = durationArgument(pair.duration);
+    totalDurationSeconds += parseDurationSeconds(pair.duration, `Pair ${i + 1} audio`);
+
+    const vIdx = i * 2;
+    const aIdx = i * 2 + 1;
+
+    filterParts.push(
+      `[${vIdx}:v:0]format=nv12,split=2[bg_src_${i}][fg_src_${i}];` +
+        `[bg_src_${i}]scale=480:270:force_original_aspect_ratio=increase,crop=480:270,scale=1920:1080:flags=bicubic:out_range=tv,setsar=1,format=nv12[bg_${i}];` +
+        `[fg_src_${i}]scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv,setsar=1,format=nv12[fg_${i}];` +
+        `[bg_${i}][fg_${i}]overlay=(W-w)/2:(H-h)/2:shortest=0,fps=30,format=nv12,trim=duration=${durArg},setpts=PTS-STARTPTS,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v_${i}];` +
+        `[${aIdx}:a:0]apad,atrim=duration=${durArg},asetpts=N/SR/TB[a_${i}]`,
+    );
+    concatInputs.push(`[v_${i}][a_${i}]`);
+  });
+
+  filterParts.push(`${concatInputs.join('')}concat=n=${pairs.length}:v=1:a=1[v][a]`);
+
+  const exactTotalDuration = durationArgument(totalDurationSeconds);
+
+  args.push(
+    '-filter_complex',
+    filterParts.join(';'),
+    '-map',
+    '[v]',
+    '-map',
+    '[a]',
+    '-c:v',
+    'h264_videotoolbox',
+    '-profile:v',
+    'high',
+    '-level:v',
+    '4.0',
+    '-allow_sw',
+    '1',
+    '-realtime',
+    '0',
+    '-b:v',
+    '8M',
+    '-maxrate',
+    '10M',
+    '-bufsize',
+    '16M',
+    '-pix_fmt',
+    'nv12',
+    '-r',
+    '30',
+    '-fps_mode',
+    'cfr',
+    '-field_order',
+    'progressive',
+    '-color_primaries',
+    'bt709',
+    '-color_trc',
+    'bt709',
+    '-colorspace',
+    'bt709',
+    '-c:a',
+    'aac',
+    '-profile:a',
+    'aac_low',
+    '-b:a',
+    '384k',
+    '-ar',
+    '48000',
+    '-ac',
+    '2',
+    '-t',
+    exactTotalDuration,
+    '-map_metadata',
+    '-1',
+    '-map_chapters',
+    '-1',
+    '-sn',
+    '-dn',
+    '-movflags',
+    '+faststart',
+    '-f',
+    'mp4',
+    outputPath,
+  );
+
+  return args;
+}
+
+async function inspectMultiPairInputs(
+  pairs,
+  {
+    ffprobePath,
+    probeImpl = probeMedia,
+    spawnImpl = spawn,
+  } = {},
+) {
+  if (!Array.isArray(pairs) || pairs.length === 0) {
+    throw new InputValidationError(
+      'At least one image and audio pair is required.',
+      'PAIRS_REQUIRED',
+    );
+  }
+
+  const probeOptions = { ffprobePath, spawnImpl };
+  const inspectedPairs = [];
+  let totalDuration = 0;
+
+  for (let i = 0; i < pairs.length; i++) {
+    const pair = pairs[i];
+    const { audioPath, visualPath } = validateInputPaths(
+      pair.audioPath,
+      pair.visualPath,
+    );
+    const [audio, visual] = await Promise.all([
+      probeImpl(audioPath, probeOptions),
+      probeImpl(visualPath, probeOptions),
+    ]);
+
+    const visualType = classifyVisualPath(visualPath);
+    validateProbeMetadata('audio', audio, audioPath);
+    validateProbeMetadata(visualType, visual, visualPath);
+
+    const duration = metadataDuration(audio, 'audio');
+    totalDuration += duration;
+
+    inspectedPairs.push({
+      audioPath,
+      visualPath,
+      visualType,
+      duration,
+      audio,
+      visual,
+    });
+  }
+
+  return {
+    pairs: inspectedPairs,
+    totalDuration,
+  };
+}
+
+async function createMultiPairMediaFile(
+  {
+    ffmpegPath,
+    pairs,
+    outputPath,
+    overwrite = false,
+  },
+  {
+    fsPromises = fsPromisesDefault,
+    idFactory = randomUUID,
+    runProcessImpl = runProcess,
+    spawnImpl = spawn,
+  } = {},
+) {
+  if (!ffmpegPath) {
+    throw new TypeError('ffmpegPath is required.');
+  }
+  if (!Array.isArray(pairs) || pairs.length === 0) {
+    throw new InputValidationError(
+      'At least one image and audio pair is required.',
+      'PAIRS_REQUIRED',
+    );
+  }
+  if (
+    typeof outputPath !== 'string' ||
+    path.extname(outputPath).toLowerCase() !== '.mp4'
+  ) {
+    throw new InputValidationError(
+      'The output path must end in .mp4.',
+      'INVALID_OUTPUT_EXTENSION',
+    );
+  }
+
+  const absoluteOutputPath = path.resolve(outputPath);
+  for (const pair of pairs) {
+    if (
+      absoluteOutputPath === path.resolve(pair.audioPath) ||
+      absoluteOutputPath === path.resolve(pair.visualPath)
+    ) {
+      throw new InputValidationError(
+        'The output path must be different from all input files.',
+        'OUTPUT_MATCHES_INPUT',
+      );
+    }
+  }
+
+  await fsPromises.access(path.dirname(absoluteOutputPath), fs.constants.W_OK);
+  const outputExisted = await pathExists(absoluteOutputPath, fsPromises);
+  if (!overwrite && outputExisted) {
+    throw new InputValidationError(
+      `The output file already exists: ${absoluteOutputPath}`,
+      'OUTPUT_EXISTS',
+    );
+  }
+
+  const tempPath = temporaryOutputPath(absoluteOutputPath, idFactory());
+  if (await pathExists(tempPath, fsPromises)) {
+    throw new MediaProcessError(
+      `A temporary output file already exists: ${tempPath}`,
+      { code: 'TEMP_OUTPUT_EXISTS' },
+    );
+  }
+
+  const args = buildMultiPairFfmpegArgs({
+    pairs,
+    outputPath: tempPath,
+  });
+
+  try {
+    await runProcessImpl(ffmpegPath, args, { spawnImpl });
+
+    if (
+      !outputExisted &&
+      (await pathExists(absoluteOutputPath, fsPromises))
+    ) {
       throw new InputValidationError(
         `The output file was created by another process: ${absoluteOutputPath}`,
         'OUTPUT_EXISTS',
@@ -542,10 +879,17 @@ async function createMediaFile(
 
 module.exports = {
   MediaProcessError,
+  artworkExtension,
+  buildArtworkExtractArgs,
   buildFfmpegArgs,
+  buildMultiPairFfmpegArgs,
   createMediaFile,
+  createMultiPairMediaFile,
+  extractEmbeddedArtwork,
+  findEmbeddedArtwork,
   generateOutput: createMediaFile,
   inspectInputs,
+  inspectMultiPairInputs,
   metadataDuration,
   parseFfprobeJson: parseProbeJson,
   parseProbeJson,

@@ -82,7 +82,7 @@ check_git_rules() {
     return
   fi
 
-  for path in .env.secret local.paths.env .omx/ RESEARCH/ test-results/; do
+  for path in .env.secret local.paths.env RESEARCH/ test-results/; do
     if is_ignored "$path"; then
       pass "$path is ignored by git"
     else

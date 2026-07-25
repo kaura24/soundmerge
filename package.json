@@ -1,0 +1,23 @@
+{
+  "name": "sound-forge",
+  "version": "0.1.0",
+  "description": "Create YouTube-ready music videos from one MP3 and one image or looping video.",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "src/main/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/unit/*.test.js",
+    "test:integration": "node --test tests/integration/*.test.js",
+    "test:smoke": "electron tests/e2e/smoke.js",
+    "package:mac": "electron-builder --mac --universal --dir --config config/electron-builder.json"
+  },
+  "devDependencies": {
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3"
+  }
+}

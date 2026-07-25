@@ -8,7 +8,6 @@
 local.paths.env
 
 # Agent/runtime state
-.omx/
 RESEARCH/
 .DS_Store
 
