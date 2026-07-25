@@ -71,6 +71,7 @@ const state = {
   isBusy: false,
   animationFrame: null,
   activePairIndex: 0,
+  previewPairOffset: 0,
 };
 
 function readableError(error, fallback) {
@@ -146,6 +147,20 @@ function mediaFileUrl(media) {
   return media?.fileUrl || filePathToUrl(media?.path);
 }
 
+function pairOffset(index) {
+  return state.pairs
+    .slice(0, index)
+    .reduce((sum, pair) => sum + (Number(pair.audio?.duration) || 0), 0);
+}
+
+function previewTimelinePosition() {
+  if (state.mode === "multi") {
+    return state.previewPairOffset + (Number(previewAudio.currentTime) || 0);
+  }
+
+  return Number(previewAudio.currentTime) || 0;
+}
+
 function durationFromState() {
   if (state.mode === "multi") {
     return state.pairs.reduce((sum, p) => sum + (Number(p.audio?.duration) || 0), 0);
@@ -160,7 +175,7 @@ function durationFromState() {
 
 function refreshTimeline() {
   const duration = durationFromState();
-  const current = Number.isFinite(previewAudio.currentTime) ? previewAudio.currentTime : 0;
+  const current = Math.min(previewTimelinePosition(), duration);
   const progress = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
 
   const hasMedia = state.mode === "multi"
@@ -225,16 +240,87 @@ function pausePreview() {
   setTransportPlaying(false);
 }
 
+function waitForAudioMetadata() {
+  if (previewAudio.readyState >= 1) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    previewAudio.addEventListener("loadedmetadata", resolve, { once: true });
+    previewAudio.addEventListener("error", reject, { once: true });
+  });
+}
+
+function waitForVideoMetadata() {
+  if (previewVideo.readyState >= 1) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    previewVideo.addEventListener("loadedmetadata", resolve, { once: true });
+    previewVideo.addEventListener("error", reject, { once: true });
+  });
+}
+
+async function loadMultiPairPreview(index, relativeTime = 0) {
+  const pair = state.pairs[index];
+  if (!pair?.audio || !pair.visual) {
+    throw new Error("Choose both an audio track and a visual source for every pair before previewing.");
+  }
+
+  state.activePairIndex = index;
+  state.previewPairOffset = pairOffset(index);
+  const audioUrl = mediaFileUrl(pair.audio);
+  if (previewAudio.src !== audioUrl) {
+    previewAudio.src = audioUrl;
+    previewAudio.load();
+    await waitForAudioMetadata();
+  }
+
+  const duration = Number(pair.audio.duration) || previewAudio.duration || 0;
+  previewAudio.currentTime = Math.max(0, Math.min(Number(relativeTime) || 0, duration));
+  syncVisualSource(pair.visual);
+  drawPreview();
+}
+
+async function seekMultiPairPreview(position) {
+  const duration = durationFromState();
+  const target = Math.max(0, Math.min(Number(position) || 0, duration));
+  let index = 0;
+  let offset = 0;
+
+  for (let i = 0; i < state.pairs.length; i += 1) {
+    const pairDuration = Number(state.pairs[i].audio?.duration) || 0;
+    if (target < offset + pairDuration || i === state.pairs.length - 1) {
+      index = i;
+      break;
+    }
+    offset += pairDuration;
+  }
+
+  const wasPlaying = !previewAudio.paused;
+  pausePreview();
+  await loadMultiPairPreview(index, target - offset);
+  if (wasPlaying) {
+    await playLoadedMultiPair();
+  }
+  refreshTimeline();
+}
+
 function syncVideoToAudio(force = false) {
+  const visual = getCurrentVisual();
   if (
-    state.visual?.kind !== "video" ||
+    visual?.kind !== "video" ||
     !Number.isFinite(previewVideo.duration) ||
     previewVideo.duration <= 0
   ) {
     return;
   }
 
-  const target = previewAudio.currentTime % previewVideo.duration;
+  const relativeAudioTime = state.mode === "multi"
+    ? previewTimelinePosition() - state.previewPairOffset
+    : previewAudio.currentTime;
+  const target = relativeAudioTime % previewVideo.duration;
   if (force || Math.abs(previewVideo.currentTime - target) > 0.16) {
     previewVideo.currentTime = target;
   }
@@ -277,7 +363,7 @@ function getCurrentVisual() {
   }
 
   if (state.mode === "multi" && state.pairs.length > 0) {
-    const current = Number.isFinite(previewAudio.currentTime) ? previewAudio.currentTime : 0;
+    const current = previewTimelinePosition();
     let accumulated = 0;
     for (const pair of state.pairs) {
       const dur = Number(pair.audio?.duration) || 0;
@@ -386,9 +472,58 @@ function startDrawing() {
   drawPreview();
 }
 
+async function playLoadedMultiPair() {
+  const visual = getCurrentVisual();
+  if (visual?.kind === "video") {
+    await waitForVideoMetadata();
+    syncVideoToAudio(true);
+    await previewVideo.play();
+  }
+  await previewAudio.play();
+  setTransportPlaying(true);
+  startDrawing();
+}
+
+async function playMultiPreview() {
+  if (
+    state.pairs.length === 0 ||
+    !state.pairs.every((pair) => pair.audio && pair.visual)
+  ) {
+    showError("Choose both an audio track and a visual source for every pair before previewing.");
+    return;
+  }
+
+  const totalDuration = durationFromState();
+  const currentPair = state.pairs[state.activePairIndex];
+  const currentUrl = currentPair ? mediaFileUrl(currentPair.audio) : "";
+  const needsReset =
+    !currentPair ||
+    !previewAudio.src ||
+    previewAudio.src !== currentUrl ||
+    previewTimelinePosition() >= totalDuration;
+
+  try {
+    if (needsReset) {
+      await loadMultiPairPreview(0, 0);
+    } else {
+      syncVisualSource(currentPair.visual);
+      drawPreview();
+    }
+    await playLoadedMultiPair();
+  } catch (error) {
+    pausePreview();
+    showError(error, "The selected media could not be played.");
+  }
+}
+
 async function playPreview() {
   clearError();
   stopResultPlayback();
+
+  if (state.mode === "multi") {
+    await playMultiPreview();
+    return;
+  }
 
   if (!state.audio || !state.visual) {
     showError("Choose both an audio track and a visual source before previewing.");
@@ -556,6 +691,7 @@ function resetSession() {
   state.visual = null;
   state.pairs = [];
   state.activePairIndex = 0;
+  state.previewPairOffset = 0;
   state.outputPath = "";
   state.outputFileUrl = "";
 
@@ -934,6 +1070,13 @@ elements.revealOutputButton.addEventListener("click", revealOutput);
 elements.resetButton.addEventListener("click", resetSession);
 
 elements.timeline.addEventListener("input", () => {
+  if (state.mode === "multi") {
+    seekMultiPairPreview(Number(elements.timeline.value)).catch((error) => {
+      showError(error, "The selected media could not be seeked.");
+    });
+    return;
+  }
+
   previewAudio.currentTime = Number(elements.timeline.value);
   syncVideoToAudio(true);
   refreshTimeline();
@@ -949,6 +1092,19 @@ previewAudio.addEventListener("timeupdate", () => {
 previewAudio.addEventListener("play", () => setTransportPlaying(true));
 previewAudio.addEventListener("pause", () => setTransportPlaying(false));
 previewAudio.addEventListener("ended", () => {
+  if (
+    state.mode === "multi" &&
+    state.activePairIndex < state.pairs.length - 1
+  ) {
+    loadMultiPairPreview(state.activePairIndex + 1, 0)
+      .then(() => playLoadedMultiPair())
+      .catch((error) => {
+        pausePreview();
+        showError(error, "The selected media could not be played.");
+      });
+    return;
+  }
+
   previewVideo.pause();
   setTransportPlaying(false);
   refreshTimeline();
