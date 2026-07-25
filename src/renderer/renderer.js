@@ -1046,7 +1046,7 @@ function renderPairList() {
 
     if (state.showTitleBadge) {
       const badgeWrap = document.createElement("div");
-      badgeWrap.style.marginTop = "6px";
+      badgeWrap.className = "multi-pair-badge-wrap";
       const badgeInput = document.createElement("input");
       badgeInput.type = "text";
       badgeInput.className = "badge-text-input";

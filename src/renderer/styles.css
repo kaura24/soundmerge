@@ -1402,6 +1402,12 @@ h2 {
   opacity: 0.52;
   cursor: not-allowed;
 }
+.badge-input-wrap {
+  margin-top: 12px;
+}
+.multi-pair-badge-wrap {
+  margin-top: 6px;
+}
 @media (max-width: 680px) {
   .pair-pickers {
     grid-template-columns: 1fr;

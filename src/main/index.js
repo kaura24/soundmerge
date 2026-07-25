@@ -331,7 +331,7 @@ function createMainWindow() {
     minWidth: 1080,
     minHeight: 720,
     center: true,
-    show: true,
+    show: false,
     alwaysOnTop: true,
     backgroundColor: '#18181c',
     title: 'Sound Forge',
@@ -342,7 +342,21 @@ function createMainWindow() {
     },
   });
 
-  window.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  window.loadFile(path.join(__dirname, '..', 'renderer', 'index.html')).catch((error) => {
+    console.error('[Sound Forge] Failed to load renderer:', error);
+  });
+
+  window.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error(
+      `[Sound Forge] Renderer failed to load (${errorCode}): ${errorDescription}`,
+    );
+  });
+
+  window.webContents.on('render-process-gone', (_event, details) => {
+    console.error(
+      `[Sound Forge] Renderer exited (${details.reason}, ${details.exitCode}).`,
+    );
+  });
 
   window.once('ready-to-show', () => {
     if (app.dock) {
@@ -381,14 +395,16 @@ async function startApplication() {
   });
 }
 
-if (require.main === module) {
-  startApplication();
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      app.quit();
-    }
-  });
-}
+startApplication().catch((error) => {
+  console.error('[Sound Forge] Failed to start:', error);
+  app.exit(1);
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
 
 module.exports = {
   CHANNELS,

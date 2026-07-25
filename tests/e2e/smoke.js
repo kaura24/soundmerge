@@ -4,25 +4,63 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow } = require('electron');
-const { registerIpcHandlers } = require('../../src/main/index');
+
+const mainWindowCreated = new Promise((resolve) => {
+  app.once('browser-window-created', (_event, window) => resolve(window));
+});
+
+require('../../src/main/index');
+
+function withTimeout(promise, message, timeoutMs = 5000) {
+  let timeout;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timeout));
+}
+
+async function waitForRenderer(window) {
+  const expectedSuffix = '/src/renderer/index.html';
+  if (
+    !window.webContents.isLoadingMainFrame() &&
+    window.webContents.getURL().endsWith(expectedSuffix)
+  ) {
+    return;
+  }
+
+  await withTimeout(
+    new Promise((resolve, reject) => {
+      window.webContents.once('did-finish-load', resolve);
+      window.webContents.once(
+        'did-fail-load',
+        (_event, errorCode, errorDescription) => {
+          reject(
+            new Error(
+              `Production renderer failed to load (${errorCode}): ${errorDescription}`,
+            ),
+          );
+        },
+      );
+    }),
+    'Production renderer did not finish loading within 5 seconds.',
+  );
+}
 
 async function run() {
-  await app.whenReady();
-  registerIpcHandlers();
-  const window = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    show: false,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      preload: path.join(__dirname, '..', '..', 'src', 'preload', 'index.js'),
-    },
-  });
-
-  await window.loadFile(
-    path.join(__dirname, '..', '..', 'src', 'renderer', 'index.html'),
+  const window = await withTimeout(
+    mainWindowCreated,
+    'Production startup did not create a BrowserWindow within 5 seconds.',
   );
+  await waitForRenderer(window);
+
+  const windows = BrowserWindow.getAllWindows();
+  if (windows.length !== 1 || windows[0] !== window) {
+    throw new Error(
+      `Production startup created ${windows.length} windows instead of one.`,
+    );
+  }
 
   const fixtureAudio = process.env.SOUND_FORGE_TEST_MP3;
   const fixtureImage = process.env.SOUND_FORGE_TEST_IMAGE;
@@ -119,6 +157,18 @@ async function run() {
 
   const result = await window.webContents.executeJavaScript(`({
     title: document.title,
+    pageUrl: window.location.href,
+    bodyTextLength: document.body.innerText.trim().length,
+    visibleElementCount: Array.from(document.querySelectorAll("body *")).filter((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== "none" &&
+        style.visibility !== "hidden"
+      );
+    }).length,
     hasCanvas: Boolean(document.querySelector('#previewCanvas')),
     hasTimeline: Boolean(document.querySelector('#timeline')),
     hasArtworkOption: Boolean(document.querySelector('#useArtworkCheckbox')),
@@ -147,6 +197,9 @@ async function run() {
 
   if (
     result.title !== 'Sound Forge' ||
+    !result.pageUrl.endsWith('/src/renderer/index.html') ||
+    result.bodyTextLength < 100 ||
+    result.visibleElementCount < 20 ||
     !result.hasCanvas ||
     !result.hasTimeline ||
     !result.hasArtworkOption ||
