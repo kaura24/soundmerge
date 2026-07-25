@@ -90,5 +90,5 @@ test('buildMultiPairFfmpegArgs includes badgePath overlay filter when provided',
 
   const filterString = args[args.indexOf('-filter_complex') + 1];
   assert.ok(args.includes('/media/badge1.png'));
-  assert.ok(filterString.includes('[base_v_0][2:v:0]overlay=W-w-40:40:shortest=0,format=nv12[v_0]'));
+  assert.ok(filterString.includes('[base_v_0][2:v:0]overlay=W-w-40:40:format=auto:shortest=0,format=nv12[v_0]'));
 });

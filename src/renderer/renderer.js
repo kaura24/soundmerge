@@ -558,6 +558,8 @@ function drawPreview() {
   const isVideoReady = kind === "video" && previewVideo.readyState >= 2 && previewVideo.videoWidth > 0;
   const isImageReady = kind === "image" && previewImage.complete && previewImage.naturalWidth > 0;
 
+  canvasContext.clearRect(0, 0, width, height);
+
   if (isVideoReady || isImageReady) {
     offscreenCanvas.width = width;
     offscreenCanvas.height = height;
@@ -569,8 +571,7 @@ function drawPreview() {
     }
 
     canvasContext.drawImage(offscreenCanvas, 0, 0);
-  } else if (!visual) {
-    canvasContext.clearRect(0, 0, width, height);
+  } else {
     canvasContext.fillStyle = "#090b0a";
     canvasContext.fillRect(0, 0, width, height);
   }
