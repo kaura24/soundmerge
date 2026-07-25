@@ -1,0 +1,556 @@
+'use strict';
+
+const fs = require('node:fs');
+const fsPromisesDefault = require('node:fs/promises');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const { spawn } = require('node:child_process');
+
+const {
+  InputValidationError,
+  parseDurationSeconds,
+  validateInputPaths,
+} = require('../shared/media-domain');
+
+const CAPTURE_LIMIT_BYTES = 1024 * 1024;
+const ERROR_DETAIL_LIMIT = 16 * 1024;
+const MP4_FORMAT_NAMES = new Set(['mp4', 'mov']);
+const IMAGE_CODECS = new Set(['mjpeg', 'jpeg2000', 'png']);
+
+class MediaProcessError extends Error {
+  constructor(message, options = {}) {
+    super(message, options);
+    this.name = 'MediaProcessError';
+    this.code = options.code;
+    this.exitCode = options.exitCode;
+    this.signal = options.signal;
+    this.stderr = options.stderr;
+  }
+}
+
+function appendBounded(chunks, chunk, state, limit) {
+  const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  const remaining = limit - state.bytes;
+  if (remaining <= 0) {
+    state.truncated = true;
+    return;
+  }
+
+  chunks.push(buffer.subarray(0, remaining));
+  state.bytes += Math.min(buffer.length, remaining);
+  if (buffer.length > remaining) {
+    state.truncated = true;
+  }
+}
+
+function runProcess(
+  binaryPath,
+  args,
+  {
+    spawnImpl = spawn,
+    captureLimitBytes = CAPTURE_LIMIT_BYTES,
+  } = {},
+) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawnImpl(binaryPath, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+    } catch (error) {
+      reject(
+        new MediaProcessError(`Unable to start ${path.basename(binaryPath)}.`, {
+          cause: error,
+          code: 'PROCESS_START_FAILED',
+        }),
+      );
+      return;
+    }
+
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    const stdoutState = { bytes: 0, truncated: false };
+    const stderrState = { bytes: 0, truncated: false };
+    let settled = false;
+
+    child.stdout.on('data', (chunk) => {
+      appendBounded(
+        stdoutChunks,
+        chunk,
+        stdoutState,
+        captureLimitBytes,
+      );
+    });
+    child.stderr.on('data', (chunk) => {
+      appendBounded(
+        stderrChunks,
+        chunk,
+        stderrState,
+        captureLimitBytes,
+      );
+    });
+
+    child.once('error', (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(
+        new MediaProcessError(`Unable to run ${path.basename(binaryPath)}.`, {
+          cause: error,
+          code: 'PROCESS_START_FAILED',
+        }),
+      );
+    });
+
+    child.once('close', (exitCode, signal) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+
+      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+      const completeStderr = Buffer.concat(stderrChunks).toString('utf8');
+      const stderr =
+        completeStderr.length > ERROR_DETAIL_LIMIT
+          ? completeStderr.slice(-ERROR_DETAIL_LIMIT)
+          : completeStderr;
+
+      if (exitCode !== 0) {
+        const detail = stderr.trim();
+        reject(
+          new MediaProcessError(
+            `${path.basename(binaryPath)} failed${
+              detail ? `: ${detail}` : '.'
+            }`,
+            {
+              code: 'PROCESS_FAILED',
+              exitCode,
+              signal,
+              stderr,
+            },
+          ),
+        );
+        return;
+      }
+
+      resolve({
+        stdout,
+        stderr,
+        stdoutTruncated: stdoutState.truncated,
+        stderrTruncated: stderrState.truncated,
+      });
+    });
+  });
+}
+
+function parseProbeJson(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (error) {
+    throw new MediaProcessError('ffprobe returned invalid JSON.', {
+      cause: error,
+      code: 'INVALID_PROBE_JSON',
+    });
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new MediaProcessError('ffprobe did not return a metadata object.', {
+      code: 'INVALID_PROBE_DATA',
+    });
+  }
+
+  if (!Array.isArray(parsed.streams)) {
+    throw new MediaProcessError(
+      'ffprobe metadata does not contain a streams array.',
+      { code: 'INVALID_PROBE_DATA' },
+    );
+  }
+
+  if (!parsed.format || typeof parsed.format !== 'object') {
+    parsed.format = {};
+  }
+
+  return parsed;
+}
+
+async function probeMedia(
+  filePath,
+  {
+    ffprobePath,
+    spawnImpl = spawn,
+    runProcessImpl = runProcess,
+  } = {},
+) {
+  if (!ffprobePath) {
+    throw new TypeError('ffprobePath is required.');
+  }
+  if (typeof filePath !== 'string' || filePath.trim() === '') {
+    throw new TypeError('A media file path is required.');
+  }
+
+  const args = [
+    '-v',
+    'error',
+    '-show_format',
+    '-show_streams',
+    '-of',
+    'json',
+    filePath,
+  ];
+  const result = await runProcessImpl(ffprobePath, args, { spawnImpl });
+  return parseProbeJson(result.stdout);
+}
+
+function streamOfType(metadata, streamType) {
+  return metadata.streams.find(
+    (stream) => stream && stream.codec_type === streamType,
+  );
+}
+
+function formatNames(metadata) {
+  return new Set(
+    String(metadata.format && metadata.format.format_name)
+      .split(',')
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function metadataDuration(metadata, preferredStreamType = null) {
+  const formatDuration = Number.parseFloat(
+    metadata.format && metadata.format.duration,
+  );
+  if (Number.isFinite(formatDuration) && formatDuration > 0) {
+    return formatDuration;
+  }
+
+  const stream = preferredStreamType
+    ? streamOfType(metadata, preferredStreamType)
+    : metadata.streams.find(Boolean);
+  return parseDurationSeconds(stream && stream.duration);
+}
+
+function validateProbeMetadata(kind, metadata, filePath = 'Selected file') {
+  if (!metadata || !Array.isArray(metadata.streams)) {
+    throw new InputValidationError(
+      `${filePath} could not be decoded.`,
+      'INVALID_MEDIA',
+    );
+  }
+
+  if (kind === 'audio') {
+    const audioStream = streamOfType(metadata, 'audio');
+    if (!audioStream || audioStream.codec_name !== 'mp3') {
+      throw new InputValidationError(
+        `${filePath} does not contain an MP3 audio stream.`,
+        'UNSUPPORTED_AUDIO_CODEC',
+      );
+    }
+    metadataDuration(metadata, 'audio');
+    return;
+  }
+
+  const videoStream = streamOfType(metadata, 'video');
+  if (!videoStream) {
+    throw new InputValidationError(
+      `${filePath} does not contain a visual stream.`,
+      'MISSING_VIDEO_STREAM',
+    );
+  }
+
+  if (kind === 'image') {
+    if (!IMAGE_CODECS.has(videoStream.codec_name)) {
+      throw new InputValidationError(
+        `${filePath} is not a supported JPG, JPEG, or PNG image.`,
+        'UNSUPPORTED_IMAGE_CODEC',
+      );
+    }
+    return;
+  }
+
+  if (kind === 'video') {
+    const names = formatNames(metadata);
+    const isMp4 = [...names].some((name) => MP4_FORMAT_NAMES.has(name));
+    if (!isMp4) {
+      throw new InputValidationError(
+        `${filePath} is not an MP4 container.`,
+        'UNSUPPORTED_VIDEO_CONTAINER',
+      );
+    }
+    if (videoStream.codec_name !== 'h264') {
+      throw new InputValidationError(
+        `${filePath} does not contain H.264 video.`,
+        'UNSUPPORTED_VIDEO_CODEC',
+      );
+    }
+    return;
+  }
+
+  throw new TypeError(`Unknown media kind: ${kind}`);
+}
+
+async function inspectInputs(
+  { audioPath, visualPath },
+  {
+    ffprobePath,
+    probeImpl = probeMedia,
+    spawnImpl = spawn,
+  } = {},
+) {
+  const validated = validateInputPaths(audioPath, visualPath);
+  const probeOptions = { ffprobePath, spawnImpl };
+  const [audio, visual] = await Promise.all([
+    probeImpl(validated.audioPath, probeOptions),
+    probeImpl(validated.visualPath, probeOptions),
+  ]);
+
+  validateProbeMetadata('audio', audio, validated.audioPath);
+  validateProbeMetadata(validated.visualType, visual, validated.visualPath);
+
+  return {
+    ...validated,
+    audioDuration: metadataDuration(audio, 'audio'),
+    audio,
+    visual,
+  };
+}
+
+function durationArgument(value) {
+  const duration = parseDurationSeconds(value, 'Audio');
+  return Number(duration.toFixed(6)).toString();
+}
+
+function buildVisualFilter(duration) {
+  return [
+    '[0:v:0]split=2[background_source][foreground_source]',
+    '[background_source]scale=1920:1080:force_original_aspect_ratio=increase,' +
+      'crop=1920:1080,gblur=sigma=30,setsar=1[background]',
+    '[foreground_source]scale=1920:1080:force_original_aspect_ratio=decrease,' +
+      'setsar=1[foreground]',
+    '[background][foreground]overlay=(W-w)/2:(H-h)/2:shortest=0,' +
+      `fps=30,format=yuv420p,trim=duration=${duration},` +
+      'setpts=PTS-STARTPTS,' +
+      'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]',
+    `[1:a:0]apad,atrim=duration=${duration},asetpts=N/SR/TB[a]`,
+  ].join(';');
+}
+
+function buildFfmpegArgs({
+  audioPath,
+  visualPath,
+  visualType,
+  duration,
+  outputPath,
+}) {
+  const validated = validateInputPaths(audioPath, visualPath);
+  const resolvedVisualType = visualType || validated.visualType;
+  if (resolvedVisualType !== validated.visualType) {
+    throw new InputValidationError(
+      'The selected visual type does not match its file extension.',
+      'VISUAL_TYPE_MISMATCH',
+    );
+  }
+  if (
+    typeof outputPath !== 'string' ||
+    path.extname(outputPath).toLowerCase() !== '.mp4'
+  ) {
+    throw new InputValidationError(
+      'The output path must end in .mp4.',
+      'INVALID_OUTPUT_EXTENSION',
+    );
+  }
+
+  const exactDuration = durationArgument(duration);
+  const args = ['-hide_banner', '-loglevel', 'error', '-y'];
+
+  if (resolvedVisualType === 'image') {
+    args.push('-loop', '1', '-framerate', '30', '-i', visualPath);
+  } else {
+    args.push('-stream_loop', '-1', '-i', visualPath);
+  }
+
+  args.push(
+    '-i',
+    audioPath,
+    '-filter_complex',
+    buildVisualFilter(exactDuration),
+    '-map',
+    '[v]',
+    '-map',
+    '[a]',
+    '-c:v',
+    'libx264',
+    '-profile:v',
+    'high',
+    '-level:v',
+    '4.0',
+    '-preset',
+    'medium',
+    '-b:v',
+    '8M',
+    '-maxrate',
+    '10M',
+    '-bufsize',
+    '16M',
+    '-pix_fmt',
+    'yuv420p',
+    '-r',
+    '30',
+    '-fps_mode',
+    'cfr',
+    '-field_order',
+    'progressive',
+    '-color_primaries',
+    'bt709',
+    '-color_trc',
+    'bt709',
+    '-colorspace',
+    'bt709',
+    '-c:a',
+    'aac',
+    '-profile:a',
+    'aac_low',
+    '-b:a',
+    '384k',
+    '-ar',
+    '48000',
+    '-ac',
+    '2',
+    '-t',
+    exactDuration,
+    '-map_metadata',
+    '-1',
+    '-map_chapters',
+    '-1',
+    '-sn',
+    '-dn',
+    '-movflags',
+    '+faststart',
+    '-f',
+    'mp4',
+    outputPath,
+  );
+
+  return args;
+}
+
+async function pathExists(filePath, fsPromises) {
+  try {
+    await fsPromises.lstat(filePath);
+    return true;
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function temporaryOutputPath(outputPath, id) {
+  const directory = path.dirname(outputPath);
+  const basename = path.basename(outputPath, path.extname(outputPath));
+  const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, '');
+  return path.join(directory, `.${basename}.${safeId}.tmp.mp4`);
+}
+
+async function createMediaFile(
+  {
+    ffmpegPath,
+    audioPath,
+    visualPath,
+    visualType,
+    duration,
+    outputPath,
+  },
+  {
+    fsPromises = fsPromisesDefault,
+    idFactory = randomUUID,
+    runProcessImpl = runProcess,
+    spawnImpl = spawn,
+  } = {},
+) {
+  if (!ffmpegPath) {
+    throw new TypeError('ffmpegPath is required.');
+  }
+  const validated = validateInputPaths(audioPath, visualPath);
+  if (
+    typeof outputPath !== 'string' ||
+    path.extname(outputPath).toLowerCase() !== '.mp4'
+  ) {
+    throw new InputValidationError(
+      'The output path must end in .mp4.',
+      'INVALID_OUTPUT_EXTENSION',
+    );
+  }
+
+  const absoluteOutputPath = path.resolve(outputPath);
+  if (
+    absoluteOutputPath === path.resolve(validated.audioPath) ||
+    absoluteOutputPath === path.resolve(validated.visualPath)
+  ) {
+    throw new InputValidationError(
+      'The output path must be different from both input files.',
+      'OUTPUT_MATCHES_INPUT',
+    );
+  }
+
+  await fsPromises.access(path.dirname(absoluteOutputPath), fs.constants.W_OK);
+  if (await pathExists(absoluteOutputPath, fsPromises)) {
+    throw new InputValidationError(
+      `The output file already exists: ${absoluteOutputPath}`,
+      'OUTPUT_EXISTS',
+    );
+  }
+
+  const tempPath = temporaryOutputPath(absoluteOutputPath, idFactory());
+  if (await pathExists(tempPath, fsPromises)) {
+    throw new MediaProcessError(
+      `A temporary output file already exists: ${tempPath}`,
+      { code: 'TEMP_OUTPUT_EXISTS' },
+    );
+  }
+
+  const args = buildFfmpegArgs({
+    audioPath,
+    visualPath,
+    visualType,
+    duration,
+    outputPath: tempPath,
+  });
+
+  try {
+    await runProcessImpl(ffmpegPath, args, { spawnImpl });
+
+    if (await pathExists(absoluteOutputPath, fsPromises)) {
+      throw new InputValidationError(
+        `The output file was created by another process: ${absoluteOutputPath}`,
+        'OUTPUT_EXISTS',
+      );
+    }
+
+    await fsPromises.rename(tempPath, absoluteOutputPath);
+  } catch (error) {
+    await fsPromises.rm(tempPath, { force: true }).catch(() => {});
+    throw error;
+  }
+
+  return absoluteOutputPath;
+}
+
+module.exports = {
+  MediaProcessError,
+  buildFfmpegArgs,
+  createMediaFile,
+  generateOutput: createMediaFile,
+  inspectInputs,
+  metadataDuration,
+  parseFfprobeJson: parseProbeJson,
+  parseProbeJson,
+  probeMedia,
+  runProcess,
+  validateInputs: inspectInputs,
+  validateProbeMetadata,
+};
