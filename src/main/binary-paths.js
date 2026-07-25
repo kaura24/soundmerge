@@ -41,6 +41,8 @@ function binaryCandidates(binaryName, options) {
     path.join(appPath, 'assets', 'bin', platformArch, binaryName),
     path.join(appPath, 'assets', 'bin', arch, binaryName),
     path.join(appPath, 'assets', 'bin', binaryName),
+    path.join('/usr/local/bin', binaryName),
+    path.join('/opt/homebrew/bin', binaryName),
   ]);
 }
 
