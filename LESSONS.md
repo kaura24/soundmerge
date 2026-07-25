@@ -18,3 +18,10 @@
 - 원인: FFmpeg `overlay` 필터가 RGBA 오버레이를 YUV420P 공간에서 직접 합성하여 크로마 서브샘플링 노이즈가 발생하고, 캔버스 미리보기에서는 매 프레임마다 이전 프레임을 `clearRect` 없이 재묘화하여 알파(반투명) 값이 누적 쌓임.
 - 해결: FFmpeg `overlay` 필터에 `format=auto` 옵션을 지정하여 알파 합성 정밀도를 높이고, `drawPreview` 시작 시 `canvasContext.clearRect(0, 0, width, height)`를 호출해 프레임을 초기화함.
 - 다음에 피할 것: 반투명 오버레이 처리 시 FFmpeg overlay 기본 포맷 합성에 의존하거나 캔버스 연속 프레임 렌더링 시 이전 알파 버퍼 clearing을 누락하지 않는다.
+
+## 2026-07-25 - Electron package 진입점은 직접 시작
+
+- 문제: 앱을 실행하면 UI 대신 빈 macOS 복원 창만 보이고 renderer target이 생성되지 않았다.
+- 원인: Electron이 `package.json`의 main 파일을 내부 bootstrap에서 불러오므로 `require.main === module`이 거짓이 되어 앱 수명주기가 시작되지 않았다.
+- 해결: package 진입점에서 `startApplication()`을 직접 호출하고, E2E smoke가 별도 창을 만들지 않고 실제 production 창의 생성과 renderer 로드를 검사하도록 변경했다.
+- 다음에 피할 것: Electron 진입점을 일반 Node 실행 조건으로 감싸거나, 제품 bootstrap을 우회하는 테스트용 `BrowserWindow`만 검사하지 않는다.

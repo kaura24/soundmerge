@@ -15,7 +15,7 @@
 - 우측 상단에 노래 제목 워터마크(Title Badge Overlay)를 실시간 미리보기 및 MP4 렌더링 결과물에 오버레이하는 기능을 단일 및 Multi-Pair 모드에 구현했다.
 - Title Badge Overlay 사용 시 실시간 플레이어 미리보기 캔버스 렌더링 누적 및 FFmpeg overlay 크로마 서브샘플링으로 인한 테두리 잔상/노이즈 현상을 해결했다 (`drawPreview` 내 clearRect 적용 및 FFmpeg `overlay=format=auto` 지정).
 - 이전 버전과 명확히 구분되도록 Sound Forge UI 테마(Gold/Amber)에 맞춘 5-바 이퀄라이저 웨이브폼 스쿼클 아이콘(assets/icon.png, assets/icon.icns)을 제작하고 앱 및 빌드 설정에 적용했다.
-- 원격 저장소를 사용하지 않고 로컬 브랜치(feature/app-icon-update)에 파일 단위로 커밋을 완료했다.
+- Electron package 진입점에서 앱 수명주기를 직접 시작하도록 수정하고, E2E smoke가 실제 production 창과 renderer 내용을 검사하게 해 빈 창 회귀를 차단했다.
 
 ## 해야 할 일
 
