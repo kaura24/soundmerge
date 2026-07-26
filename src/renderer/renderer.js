@@ -5,10 +5,15 @@ const api = window.soundForge;
 const elements = {
   addPairBtn: document.querySelector("#addPairBtn"),
   appVersion: document.querySelector("#appVersion"),
+  autoFolderPath: document.querySelector("#autoFolderPath"),
+  autoModeSection: document.querySelector("#autoModeSection"),
+  autoPairList: document.querySelector("#autoPairList"),
   audioCard: document.querySelector("#audioCard"),
   audioMeta: document.querySelector("#audioMeta"),
   audioName: document.querySelector("#audioName"),
   busyPanel: document.querySelector("#busyPanel"),
+  busyMessage: document.querySelector("#busyMessage"),
+  busyTitle: document.querySelector("#busyTitle"),
   completionCard: document.querySelector("#completionCard"),
   completionPath: document.querySelector("#completionPath"),
   controlRack: document.querySelector(".control-rack"),
@@ -17,6 +22,7 @@ const elements = {
   errorMessage: document.querySelector("#errorMessage"),
   errorPanel: document.querySelector("#errorPanel"),
   modeMultiBtn: document.querySelector("#modeMultiBtn"),
+  modeAutoBtn: document.querySelector("#modeAutoBtn"),
   modeSingleBtn: document.querySelector("#modeSingleBtn"),
   monitorFrame: document.querySelector("#monitorFrame"),
   monitorPlaceholder: document.querySelector("#monitorPlaceholder"),
@@ -32,10 +38,14 @@ const elements = {
   playPauseButton: document.querySelector("#playPauseButton"),
   previewCanvas: document.querySelector("#previewCanvas"),
   renderButton: document.querySelector("#renderButton"),
+  renderProgress: document.querySelector("#renderProgress"),
+  renderProgressFill: document.querySelector("#renderProgressFill"),
+  renderProgressValue: document.querySelector("#renderProgressValue"),
   resultPlayer: document.querySelector("#resultPlayer"),
   revealOutputButton: document.querySelector("#revealOutputButton"),
   resetButton: document.querySelector("#resetButton"),
   selectAudioButton: document.querySelector("#selectAudioButton"),
+  selectAutoFolderBtn: document.querySelector("#selectAutoFolderBtn"),
   selectOutputButton: document.querySelector("#selectOutputButton"),
   selectVisualButton: document.querySelector("#selectVisualButton"),
   singleModeSection: document.querySelector("#singleModeSection"),
@@ -69,6 +79,9 @@ const state = {
   audio: null,
   visual: null,
   pairs: [],
+  manualPairs: [],
+  autoPairs: [],
+  autoFolderPath: "",
   outputPath: "",
   outputFileUrl: "",
   isBusy: false,
@@ -78,6 +91,10 @@ const state = {
   showTitleBadge: false,
   titleBadgeText: "",
 };
+
+function isPairMode(mode = state.mode) {
+  return mode === "multi" || mode === "auto";
+}
 
 function readableError(error, fallback) {
   if (typeof error === "string" && error.trim()) {
@@ -133,7 +150,9 @@ function basename(filePath) {
 }
 
 function outputSuggestion() {
-  const sourceName = state.audio?.name || "sound-forge-master.mp3";
+  const sourceName = isPairMode()
+    ? state.pairs[0]?.audio?.name || "sound-forge-master.mp3"
+    : state.audio?.name || "sound-forge-master.mp3";
   const stem = sourceName.replace(/\.[^.]+$/, "").trim() || "sound-forge-master";
   return `${stem}-master.mp4`;
 }
@@ -159,7 +178,7 @@ function pairOffset(index) {
 }
 
 function previewTimelinePosition() {
-  if (state.mode === "multi") {
+  if (isPairMode()) {
     return state.previewPairOffset + (Number(previewAudio.currentTime) || 0);
   }
 
@@ -167,7 +186,7 @@ function previewTimelinePosition() {
 }
 
 function durationFromState() {
-  if (state.mode === "multi") {
+  if (isPairMode()) {
     return state.pairs.reduce((sum, p) => sum + (Number(p.audio?.duration) || 0), 0);
   }
 
@@ -183,11 +202,11 @@ function refreshTimeline() {
   const current = Math.min(previewTimelinePosition(), duration);
   const progress = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
 
-  const hasMedia = state.mode === "multi"
+  const hasMedia = isPairMode()
     ? (state.pairs.length > 0 && state.pairs.some(p => p.audio))
     : Boolean(state.audio);
 
-  const canPlay = state.mode === "multi"
+  const canPlay = isPairMode()
     ? (state.pairs.length > 0 && state.pairs.every(p => p.audio && p.visual))
     : Boolean(state.audio && state.visual);
 
@@ -212,17 +231,47 @@ function setSystemStatus(label, mode = "standby") {
   elements.statusLamp.classList.toggle("is-ready", mode === "ready");
 }
 
+function updateRenderProgress(progress = {}) {
+  if (!state.isBusy) return;
+  const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+  const current = Math.max(1, Number(progress.current) || 1);
+  const total = Math.max(current, Number(progress.total) || current);
+  const roundedPercent = Math.round(percent);
+
+  elements.renderProgress.setAttribute("aria-valuenow", String(roundedPercent));
+  elements.renderProgressFill.style.width = `${roundedPercent}%`;
+  elements.renderProgressValue.textContent = `${roundedPercent}%`;
+
+  if (progress.phase === "compositing") {
+    elements.busyTitle.textContent = `Preparing artwork ${current} of ${total}`;
+    elements.busyMessage.textContent = "Applying the title badge once before video encoding…";
+  } else if (progress.phase === "concatenating") {
+    elements.busyTitle.textContent = "Assembling final master";
+    elements.busyMessage.textContent = "Joining completed tracks without re-encoding…";
+  } else if (progress.phase === "complete") {
+    elements.busyTitle.textContent = "Master complete";
+    elements.busyMessage.textContent = "Finalizing the output file…";
+  } else {
+    elements.busyTitle.textContent = `Rendering track ${current} of ${total}`;
+    elements.busyMessage.textContent = "Encoding one track at a time for stable memory use…";
+  }
+  setSystemStatus(`RENDER ${roundedPercent}%`, "busy");
+}
+
 function updateActionAvailability() {
-  const canRender = state.mode === "multi"
+  const canRender = isPairMode()
     ? (state.pairs.length > 0 && state.pairs.every(p => p.audio && p.visual) && Boolean(state.outputPath) && !state.isBusy)
     : (Boolean(state.audio && state.visual && state.outputPath) && !state.isBusy);
 
   elements.renderButton.disabled = !canRender;
   elements.selectAudioButton.disabled = state.isBusy;
   elements.selectVisualButton.disabled = state.isBusy;
+  elements.selectAutoFolderBtn.disabled = state.isBusy;
   elements.selectOutputButton.disabled = state.isBusy;
   elements.useArtworkCheckbox.disabled = state.isBusy || !state.audio?.hasEmbeddedArtwork;
-  if (elements.showTitleBadgeCheckbox) elements.showTitleBadgeCheckbox.disabled = state.isBusy;
+  if (elements.showTitleBadgeCheckbox) {
+    elements.showTitleBadgeCheckbox.disabled = state.isBusy;
+  }
   if (elements.titleBadgeInput) elements.titleBadgeInput.disabled = state.isBusy;
   refreshTimeline();
 }
@@ -324,7 +373,7 @@ function syncVideoToAudio(force = false) {
     return;
   }
 
-  const relativeAudioTime = state.mode === "multi"
+  const relativeAudioTime = isPairMode()
     ? previewTimelinePosition() - state.previewPairOffset
     : previewAudio.currentTime;
   const target = relativeAudioTime % previewVideo.duration;
@@ -369,7 +418,7 @@ function getCurrentVisual() {
     return state.visual;
   }
 
-  if (state.mode === "multi" && state.pairs.length > 0) {
+  if (isPairMode() && state.pairs.length > 0) {
     const current = previewTimelinePosition();
     let accumulated = 0;
     for (const pair of state.pairs) {
@@ -402,7 +451,7 @@ function getTitleBadgeCanvas(text) {
   const textWidth = Math.ceil(metrics.width);
 
   const paddingLeft = 24;
-  const iconWidth = 32;
+  const iconWidth = 36;
   const iconGap = 14;
   const paddingRight = 28;
   const boxWidth = paddingLeft + iconWidth + iconGap + textWidth + paddingRight;
@@ -449,14 +498,12 @@ function getTitleBadgeCanvas(text) {
   const iconStartX = boxX + paddingLeft;
   const iconCenterY = boxY + boxHeight / 2;
 
-  ctx.fillStyle = "#e3a84e";
-  ctx.fillRect(iconStartX, iconCenterY - 6, 4, 12);
-  ctx.fillStyle = "#ffc872";
-  ctx.fillRect(iconStartX + 8, iconCenterY - 12, 4, 24);
-  ctx.fillStyle = "#e3a84e";
-  ctx.fillRect(iconStartX + 16, iconCenterY - 8, 4, 16);
-  ctx.fillStyle = "#c28e38";
-  ctx.fillRect(iconStartX + 24, iconCenterY - 10, 4, 20);
+  const barHeights = [12, 22, 30, 22, 12];
+  const barColors = ["#c58b32", "#e3a84e", "#ffc872", "#e3a84e", "#c58b32"];
+  barHeights.forEach((height, index) => {
+    ctx.fillStyle = barColors[index];
+    ctx.fillRect(iconStartX + index * 8, iconCenterY - height / 2, 4, height);
+  });
 
   ctx.font = font;
   ctx.fillStyle = "#eee8dc";
@@ -472,7 +519,7 @@ function getTitleBadgeDataUrl(text) {
 }
 
 function getCurrentPair() {
-  if (state.mode !== "multi" || state.pairs.length === 0) return null;
+  if (!isPairMode() || state.pairs.length === 0) return null;
   const current = previewTimelinePosition();
   let accumulated = 0;
   for (const pair of state.pairs) {
@@ -490,15 +537,21 @@ function getActiveBadgeText() {
     if (state.titleBadgeText && state.titleBadgeText.trim()) {
       return state.titleBadgeText.trim();
     }
+    if (state.audio?.title) {
+      return state.audio.title;
+    }
     if (state.audio?.name) {
       return state.audio.name.replace(/\.[^/.]+$/, "");
     }
     return "Sound Forge Master";
-  } else if (state.mode === "multi") {
+  } else if (isPairMode()) {
     const pair = getCurrentPair();
     if (pair) {
       if (pair.titleBadgeText && pair.titleBadgeText.trim()) {
         return pair.titleBadgeText.trim();
+      }
+      if (pair.audio?.title) {
+        return pair.audio.title;
       }
       if (pair.audio?.name) {
         return pair.audio.name.replace(/\.[^/.]+$/, "");
@@ -548,7 +601,7 @@ function drawPreview() {
   }
 
   const currentVisual = getCurrentVisual();
-  if (state.mode === "multi" && currentVisual) {
+  if (isPairMode() && currentVisual) {
     syncVisualSource(currentVisual);
   }
 
@@ -668,7 +721,7 @@ async function playPreview() {
   clearError();
   stopResultPlayback();
 
-  if (state.mode === "multi") {
+  if (isPairMode()) {
     await playMultiPreview();
     return;
   }
@@ -838,6 +891,9 @@ function resetSession() {
   state.audio = null;
   state.visual = null;
   state.pairs = [];
+  state.manualPairs = [];
+  state.autoPairs = [];
+  state.autoFolderPath = "";
   state.activePairIndex = 0;
   state.previewPairOffset = 0;
   state.outputPath = "";
@@ -850,6 +906,8 @@ function resetSession() {
   elements.outputName.textContent = "Choose destination";
   elements.outputPath.textContent = "Set the folder and filename";
   elements.outputPath.removeAttribute("title");
+  elements.autoFolderPath.textContent = "No folder selected";
+  elements.autoFolderPath.removeAttribute("title");
   elements.audioCard.classList.remove("is-selected");
   elements.visualCard.classList.remove("is-selected");
   elements.outputCard.classList.remove("is-selected");
@@ -879,6 +937,13 @@ function setBusy(isBusy) {
   elements.controlRack.setAttribute("aria-busy", String(isBusy));
   if (isBusy) {
     setSystemStatus("ENGINE ACTIVE", "busy");
+    elements.busyTitle.textContent = "Forging your master";
+    elements.busyMessage.textContent = isPairMode()
+      ? "Preparing staged track rendering…"
+      : "Encoding the full soundtrack and visual loop…";
+    elements.renderProgress.setAttribute("aria-valuenow", "0");
+    elements.renderProgressFill.style.width = "0%";
+    elements.renderProgressValue.textContent = "0%";
   }
   updateActionAvailability();
 }
@@ -994,7 +1059,10 @@ function addPair() {
 }
 
 function renderPairList() {
-  elements.pairList.innerHTML = "";
+  const targetList = state.mode === "auto"
+    ? elements.autoPairList
+    : elements.pairList;
+  targetList.innerHTML = "";
   state.pairs.forEach((pair, index) => {
     const item = document.createElement("div");
     item.className = "pair-item";
@@ -1002,7 +1070,7 @@ function renderPairList() {
     const header = document.createElement("div");
     header.className = "pair-item__header";
     header.innerHTML = `
-      <span class="pair-item__title">PAIR #${index + 1}</span>
+      <span class="pair-item__title">${state.mode === "auto" ? "AUTO" : "PAIR"} #${index + 1}</span>
       <div class="pair-item__controls">
         ${index > 0 ? `<button class="pair-btn" data-action="up" data-index="${index}">▲</button>` : ''}
         ${index < state.pairs.length - 1 ? `<button class="pair-btn" data-action="down" data-index="${index}">▼</button>` : ''}
@@ -1016,6 +1084,7 @@ function renderPairList() {
     const audioBtn = document.createElement("button");
     audioBtn.type = "button";
     audioBtn.className = "pair-picker-btn";
+    audioBtn.disabled = state.mode === "auto";
     audioBtn.innerHTML = pair.audio
       ? `<strong>${pair.audio.name}</strong><small>${formatDuration(Number(pair.audio.duration))} · MP3</small>`
       : `<strong>Select MP3</strong><small>Audio Source</small>`;
@@ -1024,6 +1093,7 @@ function renderPairList() {
     const visualBtn = document.createElement("button");
     visualBtn.type = "button";
     visualBtn.className = "pair-picker-btn";
+    visualBtn.disabled = state.mode === "auto";
     visualBtn.innerHTML = pair.visual
       ? `<strong>${pair.visual.name}</strong><small>Visual Source</small>`
       : `<strong>Select Image</strong><small>Visual Source</small>`;
@@ -1032,7 +1102,7 @@ function renderPairList() {
     const artworkBtn = document.createElement("button");
     artworkBtn.type = "button";
     artworkBtn.className = "pair-picker-btn pair-artwork-btn";
-    artworkBtn.disabled = !pair.audio?.hasEmbeddedArtwork;
+    artworkBtn.disabled = state.mode === "auto" || !pair.audio?.hasEmbeddedArtwork;
     artworkBtn.innerHTML = pair.visual?.source === "audio-artwork"
       ? `<strong>Embedded artwork selected</strong><small>Original MP3 cover image</small>`
       : `<strong>Use MP3 artwork</strong><small>${pair.audio?.hasEmbeddedArtwork ? "Available" : "Not available"}</small>`;
@@ -1085,32 +1155,77 @@ function renderPairList() {
       }
     });
 
-    elements.pairList.appendChild(item);
+    targetList.appendChild(item);
   });
 }
 
 function switchMode(mode) {
+  if (state.mode === "multi") {
+    state.manualPairs = state.pairs;
+  } else if (state.mode === "auto") {
+    state.autoPairs = state.pairs;
+  }
+
   state.mode = mode;
   elements.modeSingleBtn.classList.toggle("mode-tab--active", mode === "single");
   elements.modeSingleBtn.setAttribute("aria-selected", String(mode === "single"));
   elements.modeMultiBtn.classList.toggle("mode-tab--active", mode === "multi");
   elements.modeMultiBtn.setAttribute("aria-selected", String(mode === "multi"));
+  elements.modeAutoBtn.classList.toggle("mode-tab--active", mode === "auto");
+  elements.modeAutoBtn.setAttribute("aria-selected", String(mode === "auto"));
 
   elements.singleModeSection.hidden = mode !== "single";
   elements.multiModeSection.hidden = mode !== "multi";
+  elements.autoModeSection.hidden = mode !== "auto";
 
-  if (mode === "multi" && state.pairs.length === 0) {
-    addPair();
+  if (mode === "multi") {
+    state.pairs = state.manualPairs;
+    if (state.pairs.length === 0) {
+      addPair();
+    }
+    state.manualPairs = state.pairs;
+  } else if (mode === "auto") {
+    state.pairs = state.autoPairs;
   }
 
+  renderPairList();
   updateActionAvailability();
+}
+
+async function selectAutoFolder() {
+  clearError();
+  try {
+    const selection = await api.selectAutoFolder();
+    if (!selection) return;
+
+    state.autoFolderPath = selection.folderPath;
+    state.pairs = selection.pairs.map((pair) => ({
+      id: Date.now() + Math.random(),
+      audio: pair.audio,
+      visual: pair.visual,
+    }));
+    state.autoPairs = state.pairs;
+    state.activePairIndex = 0;
+    state.previewPairOffset = 0;
+    elements.autoFolderPath.textContent = selection.folderPath;
+    elements.autoFolderPath.title = selection.folderPath;
+    pausePreview();
+    renderPairList();
+    updateActionAvailability();
+    drawPreview();
+  } catch (error) {
+    showError(
+      error,
+      "Auto Pair requires at least one MP3 and embedded artwork in every track.",
+    );
+  }
 }
 
 async function renderMaster() {
   clearError();
   clearCompletion();
 
-  if (state.mode === "multi") {
+  if (isPairMode()) {
     if (
       state.pairs.length === 0 ||
       !state.pairs.every((p) => p.audio && p.visual) ||
@@ -1129,12 +1244,12 @@ async function renderMaster() {
 
   try {
     let result;
-    if (state.mode === "multi") {
+    if (isPairMode()) {
       result = await api.renderMulti({
         pairs: state.pairs.map((p) => {
           let text = p.titleBadgeText && p.titleBadgeText.trim()
             ? p.titleBadgeText.trim()
-            : (p.audio?.name ? p.audio.name.replace(/\\.[^/.]+$/, "") : (state.titleBadgeText.trim() || "Sound Forge Track"));
+            : (p.audio?.title || (p.audio?.name ? p.audio.name.replace(/\\.[^/.]+$/, "") : (state.titleBadgeText.trim() || "Sound Forge Track")));
           return {
             audioPath: p.audio.path,
             visualPath: p.visual.path,
@@ -1232,9 +1347,15 @@ async function loadAppInfo() {
   }
 }
 
+if (api && typeof api.onRenderProgress === "function") {
+  api.onRenderProgress(updateRenderProgress);
+}
+
 elements.modeSingleBtn.addEventListener("click", () => switchMode("single"));
 elements.modeMultiBtn.addEventListener("click", () => switchMode("multi"));
+elements.modeAutoBtn.addEventListener("click", () => switchMode("auto"));
 elements.addPairBtn.addEventListener("click", addPair);
+elements.selectAutoFolderBtn.addEventListener("click", selectAutoFolder);
 elements.selectAudioButton.addEventListener("click", selectAudio);
 elements.selectVisualButton.addEventListener("click", selectVisual);
 elements.useArtworkCheckbox.addEventListener("change", toggleEmbeddedArtwork);
@@ -1265,7 +1386,7 @@ elements.revealOutputButton.addEventListener("click", revealOutput);
 elements.resetButton.addEventListener("click", resetSession);
 
 elements.timeline.addEventListener("input", () => {
-  if (state.mode === "multi") {
+  if (isPairMode()) {
     seekMultiPairPreview(Number(elements.timeline.value)).catch((error) => {
       showError(error, "The selected media could not be seeked.");
     });
@@ -1283,7 +1404,7 @@ previewAudio.addEventListener("durationchange", refreshTimeline);
 previewAudio.addEventListener("timeupdate", () => {
   refreshTimeline();
   syncVideoToAudio();
-  if (state.mode === "multi") {
+  if (isPairMode()) {
     drawPreview();
   }
 });
@@ -1291,7 +1412,7 @@ previewAudio.addEventListener("play", () => setTransportPlaying(true));
 previewAudio.addEventListener("pause", () => setTransportPlaying(false));
 previewAudio.addEventListener("ended", () => {
   if (
-    state.mode === "multi" &&
+    isPairMode() &&
     state.activePairIndex < state.pairs.length - 1
   ) {
     loadMultiPairPreview(state.activePairIndex + 1, 0)

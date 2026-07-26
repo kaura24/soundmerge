@@ -763,6 +763,103 @@ function buildMultiPairFfmpegArgs({ pairs, outputPath }) {
   return args;
 }
 
+function concatManifestLine(filePath) {
+  const escapedPath = path.resolve(filePath).replace(/'/g, "'\\''");
+  return `file '${escapedPath}'`;
+}
+
+function buildBadgedStillFfmpegArgs({
+  visualPath,
+  badgePath,
+  outputPath,
+}) {
+  if (!visualPath || !badgePath) {
+    throw new TypeError('visualPath and badgePath are required.');
+  }
+  if (
+    typeof outputPath !== 'string' ||
+    path.extname(outputPath).toLowerCase() !== '.png'
+  ) {
+    throw new InputValidationError(
+      'The staged artwork path must end in .png.',
+      'INVALID_ARTWORK_OUTPUT_EXTENSION',
+    );
+  }
+
+  return [
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-y',
+    '-i',
+    visualPath,
+    '-i',
+    badgePath,
+    '-filter_complex',
+    '[0:v:0]format=rgba,split=2[bg_src][fg_src];' +
+      '[bg_src]scale=480:270:force_original_aspect_ratio=increase,' +
+      'crop=480:270,scale=1920:1080:flags=bicubic,setsar=1,format=rgba[bg];' +
+      '[fg_src]scale=1920:1080:force_original_aspect_ratio=decrease,' +
+      'setsar=1,format=rgba[fg];' +
+      '[bg][fg]overlay=(W-w)/2:(H-h)/2:format=auto[base];' +
+      '[base][1:v:0]overlay=W-w-40:40:format=auto,format=rgba[out]',
+    '-map',
+    '[out]',
+    '-frames:v',
+    '1',
+    '-c:v',
+    'png',
+    '-pix_fmt',
+    'rgba',
+    '-f',
+    'image2',
+    outputPath,
+  ];
+}
+
+function buildConcatFfmpegArgs({ manifestPath, outputPath }) {
+  if (!manifestPath) {
+    throw new TypeError('manifestPath is required.');
+  }
+  if (
+    typeof outputPath !== 'string' ||
+    path.extname(outputPath).toLowerCase() !== '.mp4'
+  ) {
+    throw new InputValidationError(
+      'The output path must end in .mp4.',
+      'INVALID_OUTPUT_EXTENSION',
+    );
+  }
+
+  return [
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-y',
+    '-f',
+    'concat',
+    '-safe',
+    '0',
+    '-i',
+    manifestPath,
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a:0',
+    '-c',
+    'copy',
+    '-map_metadata',
+    '-1',
+    '-map_chapters',
+    '-1',
+    '-sn',
+    '-dn',
+    '-movflags',
+    '+faststart',
+    outputPath,
+  ];
+}
+
 async function inspectMultiPairInputs(
   pairs,
   {
@@ -817,16 +914,125 @@ async function inspectMultiPairInputs(
   };
 }
 
+async function prepareAutoPairInputs(
+  {
+    folderPath,
+    workRoot,
+    ffmpegPath,
+    ffprobePath,
+  },
+  {
+    fsPromises = fsPromisesDefault,
+    idFactory = randomUUID,
+    probeImpl = probeMedia,
+    extractArtworkImpl = extractEmbeddedArtwork,
+  } = {},
+) {
+  if (typeof folderPath !== 'string' || folderPath.trim().length === 0) {
+    throw new TypeError('folderPath is required.');
+  }
+  if (typeof workRoot !== 'string' || workRoot.trim().length === 0) {
+    throw new TypeError('workRoot is required.');
+  }
+  if (!ffmpegPath || !ffprobePath) {
+    throw new TypeError('ffmpegPath and ffprobePath are required.');
+  }
+
+  const absoluteFolderPath = path.resolve(folderPath);
+  const absoluteWorkRoot = path.resolve(workRoot);
+  await fsPromises.access(absoluteFolderPath, fs.constants.R_OK);
+  await fsPromises.access(absoluteWorkRoot, fs.constants.W_OK);
+
+  const entries = await fsPromises.readdir(absoluteFolderPath, {
+    withFileTypes: true,
+  });
+  const audioPaths = entries
+    .filter(
+      (entry) =>
+        entry.isFile() && path.extname(entry.name).toLowerCase() === '.mp3',
+    )
+    .map((entry) => path.join(absoluteFolderPath, entry.name))
+    .sort((left, right) =>
+      path.basename(left).localeCompare(path.basename(right), 'en', {
+        numeric: true,
+        sensitivity: 'base',
+      }),
+    );
+
+  if (audioPaths.length === 0) {
+    throw new InputValidationError(
+      'The selected folder does not contain any MP3 files.',
+      'AUTO_PAIR_NO_MP3',
+    );
+  }
+
+  const inspected = [];
+  for (const audioPath of audioPaths) {
+    const audio = await probeImpl(audioPath, { ffprobePath });
+    validateProbeMetadata('audio', audio, audioPath);
+    const artwork = findEmbeddedArtwork(audio);
+    if (!artwork) {
+      throw new InputValidationError(
+        `Embedded artwork is required for Auto Pair: ${path.basename(audioPath)}`,
+        'AUTO_PAIR_ARTWORK_REQUIRED',
+      );
+    }
+    inspected.push({
+      audioPath,
+      audio,
+      artwork,
+      duration: metadataDuration(audio, 'audio'),
+    });
+  }
+
+  const createdArtworkPaths = [];
+  try {
+    const pairs = [];
+    for (const item of inspected) {
+      const visualPath = path.join(
+        absoluteWorkRoot,
+        `sound-forge-auto-artwork-${idFactory()}${artworkExtension(item.artwork)}`,
+      );
+      await extractArtworkImpl({
+        ffmpegPath,
+        audioPath: item.audioPath,
+        streamIndex: item.artwork.index,
+        outputPath: visualPath,
+      });
+      createdArtworkPaths.push(visualPath);
+      pairs.push({
+        audioPath: item.audioPath,
+        visualPath,
+        visualType: 'image',
+        duration: item.duration,
+        audio: item.audio,
+        artwork: item.artwork,
+      });
+    }
+    return pairs;
+  } catch (error) {
+    await Promise.all(
+      createdArtworkPaths.map((filePath) =>
+        fsPromises.rm(filePath, { force: true }).catch(() => {}),
+      ),
+    );
+    throw error;
+  }
+}
+
 async function createMultiPairMediaFile(
   {
     ffmpegPath,
     pairs,
     outputPath,
+    workRoot,
     overwrite = false,
+    onProgress = () => {},
   },
   {
     fsPromises = fsPromisesDefault,
     idFactory = randomUUID,
+    createMediaFileImpl = createMediaFile,
     runProcessImpl = runProcess,
     spawnImpl = spawn,
   } = {},
@@ -849,6 +1055,12 @@ async function createMultiPairMediaFile(
       'INVALID_OUTPUT_EXTENSION',
     );
   }
+  if (typeof workRoot !== 'string' || workRoot.trim().length === 0) {
+    throw new TypeError('workRoot is required for staged multi-pair rendering.');
+  }
+  if (typeof onProgress !== 'function') {
+    throw new TypeError('onProgress must be a function.');
+  }
 
   const absoluteOutputPath = path.resolve(outputPath);
   for (const pair of pairs) {
@@ -864,6 +1076,7 @@ async function createMultiPairMediaFile(
   }
 
   await fsPromises.access(path.dirname(absoluteOutputPath), fs.constants.W_OK);
+  await fsPromises.access(path.resolve(workRoot), fs.constants.W_OK);
   const outputExisted = await pathExists(absoluteOutputPath, fsPromises);
   if (!overwrite && outputExisted) {
     throw new InputValidationError(
@@ -880,12 +1093,105 @@ async function createMultiPairMediaFile(
     );
   }
 
-  const args = buildMultiPairFfmpegArgs({
-    pairs,
-    outputPath: tempPath,
-  });
+  let stageDirectory;
+  const totalDuration = pairs.reduce(
+    (sum, pair, index) =>
+      sum + parseDurationSeconds(pair.duration, `Pair ${index + 1} audio`),
+    0,
+  );
+  let completedDuration = 0;
+  const emitProgress = (payload) => {
+    try {
+      onProgress(payload);
+    } catch {
+      // Renderer progress reporting must never interrupt an active encode.
+    }
+  };
 
   try {
+    stageDirectory = await fsPromises.mkdtemp(
+      path.join(path.resolve(workRoot), 'sound-forge-multi-'),
+    );
+    const segmentPaths = [];
+    for (let index = 0; index < pairs.length; index += 1) {
+      const pair = pairs[index];
+      let visualPath = pair.visualPath;
+      let badgePath = pair.badgePath;
+      emitProgress({
+        phase: 'rendering',
+        current: index + 1,
+        total: pairs.length,
+        percent: Math.round((completedDuration / totalDuration) * 90),
+      });
+      if (pair.visualType === 'image' && pair.badgePath) {
+        emitProgress({
+          phase: 'compositing',
+          current: index + 1,
+          total: pairs.length,
+          percent: Math.round((completedDuration / totalDuration) * 90),
+        });
+        visualPath = path.join(
+          stageDirectory,
+          `artwork-${String(index + 1).padStart(4, '0')}.png`,
+        );
+        const compositeArgs = buildBadgedStillFfmpegArgs({
+          visualPath: pair.visualPath,
+          badgePath: pair.badgePath,
+          outputPath: visualPath,
+        });
+        await runProcessImpl(ffmpegPath, compositeArgs, { spawnImpl });
+        badgePath = undefined;
+      }
+      const segmentPath = path.join(
+        stageDirectory,
+        `segment-${String(index + 1).padStart(4, '0')}.mp4`,
+      );
+      await createMediaFileImpl(
+        {
+          ffmpegPath,
+          audioPath: pair.audioPath,
+          visualPath,
+          visualType: pair.visualType,
+          duration: pair.duration,
+          outputPath: segmentPath,
+          badgePath,
+        },
+        {
+          fsPromises,
+          idFactory,
+          runProcessImpl,
+          spawnImpl,
+        },
+      );
+      segmentPaths.push(segmentPath);
+      completedDuration += parseDurationSeconds(
+        pair.duration,
+        `Pair ${index + 1} audio`,
+      );
+      emitProgress({
+        phase: 'rendering',
+        current: index + 1,
+        total: pairs.length,
+        percent: Math.round((completedDuration / totalDuration) * 90),
+      });
+    }
+
+    const manifestPath = path.join(stageDirectory, 'concat.txt');
+    await fsPromises.writeFile(
+      manifestPath,
+      `${segmentPaths.map(concatManifestLine).join('\n')}\n`,
+      'utf8',
+    );
+    const args = buildConcatFfmpegArgs({
+      manifestPath,
+      outputPath: tempPath,
+    });
+    emitProgress({
+      phase: 'concatenating',
+      current: pairs.length,
+      total: pairs.length,
+      percent: 95,
+    });
     await runProcessImpl(ffmpegPath, args, { spawnImpl });
 
     if (
@@ -899,9 +1205,21 @@ async function createMultiPairMediaFile(
     }
 
     await fsPromises.rename(tempPath, absoluteOutputPath);
+    emitProgress({
+      phase: 'complete',
+      current: pairs.length,
+      total: pairs.length,
+      percent: 100,
+    });
   } catch (error) {
     await fsPromises.rm(tempPath, { force: true }).catch(() => {});
     throw error;
+  } finally {
+    if (stageDirectory) {
+      await fsPromises
+        .rm(stageDirectory, { recursive: true, force: true })
+        .catch(() => {});
+    }
   }
 
   return absoluteOutputPath;
@@ -911,6 +1229,8 @@ module.exports = {
   MediaProcessError,
   artworkExtension,
   buildArtworkExtractArgs,
+  buildBadgedStillFfmpegArgs,
+  buildConcatFfmpegArgs,
   buildFfmpegArgs,
   buildMultiPairFfmpegArgs,
   createMediaFile,
@@ -924,6 +1244,7 @@ module.exports = {
   parseFfprobeJson: parseProbeJson,
   parseProbeJson,
   probeMedia,
+  prepareAutoPairInputs,
   runProcess,
   validateInputs: inspectInputs,
   validateProbeMetadata,

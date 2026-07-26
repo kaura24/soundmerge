@@ -62,6 +62,27 @@ async function run() {
     );
   }
 
+  const badgeOutputDir = process.env.SOUND_FORGE_BADGE_OUTPUT_DIR;
+  const badgeTitlesJson = process.env.SOUND_FORGE_BADGE_TITLES;
+  if (badgeOutputDir && badgeTitlesJson) {
+    const badgeTitles = JSON.parse(badgeTitlesJson);
+    await fs.mkdir(badgeOutputDir, { recursive: true });
+    for (let index = 0; index < badgeTitles.length; index += 1) {
+      const dataUrl = await window.webContents.executeJavaScript(
+        `getTitleBadgeDataUrl(${JSON.stringify(String(badgeTitles[index]))})`,
+      );
+      const outputPath = path.join(
+        badgeOutputDir,
+        `badge-${String(index + 1).padStart(4, '0')}.png`,
+      );
+      await fs.writeFile(
+        outputPath,
+        Buffer.from(dataUrl.split(',')[1], 'base64'),
+      );
+      process.stdout.write(`Badge fixture retained: ${outputPath}\n`);
+    }
+  }
+
   const fixtureAudio = process.env.SOUND_FORGE_TEST_MP3;
   const fixtureImage = process.env.SOUND_FORGE_TEST_IMAGE;
   const fixtureVideo = process.env.SOUND_FORGE_TEST_VIDEO;
@@ -173,6 +194,25 @@ async function run() {
     hasTimeline: Boolean(document.querySelector('#timeline')),
     hasArtworkOption: Boolean(document.querySelector('#useArtworkCheckbox')),
     hasBridge: typeof window.soundForge?.render === 'function',
+    hasAutoBridge: typeof window.soundForge?.selectAutoFolder === 'function',
+    hasAutoFolderPicker: Boolean(document.querySelector('#selectAutoFolderBtn')),
+    hasRenderProgress: Boolean(document.querySelector('#renderProgress')),
+    autoModeVisible: (() => {
+      switchMode("auto");
+      const visible = !document.querySelector('#autoModeSection').hidden;
+      switchMode("single");
+      return visible;
+    })(),
+    autoBadgeOptional: (() => {
+      switchMode("auto");
+      const checkbox = document.querySelector('#showTitleBadgeCheckbox');
+      const selectable = checkbox?.disabled === false;
+      checkbox?.click();
+      const enabled = checkbox?.checked === true && state.showTitleBadge === true;
+      checkbox?.click();
+      switchMode("single");
+      return selectable && enabled;
+    })(),
     renderDisabled: document.querySelector('#renderButton')?.disabled,
     totalTime: document.querySelector('#totalTime')?.textContent,
     outputDuration: Number.isFinite(elements.resultPlayer.duration)
@@ -204,6 +244,11 @@ async function run() {
     !result.hasTimeline ||
     !result.hasArtworkOption ||
     !result.hasBridge ||
+    !result.hasAutoBridge ||
+    !result.hasAutoFolderPicker ||
+    !result.hasRenderProgress ||
+    !result.autoModeVisible ||
+    !result.autoBadgeOptional ||
     result.renderDisabled !== !fixturesLoaded ||
     (fixturesLoaded && result.totalTime !== '04:47') ||
     (fixturesLoaded && result.previewTime <= 120.25) ||

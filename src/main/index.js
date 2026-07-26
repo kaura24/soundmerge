@@ -22,6 +22,7 @@ const {
   inspectInputs,
   inspectMultiPairInputs,
   metadataDuration,
+  prepareAutoPairInputs,
   probeMedia,
   validateProbeMetadata,
 } = require('./media-service');
@@ -32,8 +33,10 @@ const CHANNELS = Object.freeze({
   open: 'sound-forge:open',
   render: 'sound-forge:render',
   renderMulti: 'sound-forge:render-multi',
+  renderProgress: 'sound-forge:render-progress',
   reveal: 'sound-forge:reveal',
   selectAudio: 'sound-forge:select-audio',
+  selectAutoFolder: 'sound-forge:select-auto-folder',
   extractArtwork: 'sound-forge:extract-artwork',
   selectOutput: 'sound-forge:select-output',
   selectVisual: 'sound-forge:select-visual',
@@ -84,6 +87,10 @@ function selectedMedia(filePath, inspection, kind) {
     width: Number(stream.width || 0),
     height: Number(stream.height || 0),
     codec: stream.codec_name,
+    title:
+      kind === 'audio' && typeof metadata.format?.tags?.title === 'string'
+        ? metadata.format.tags.title
+        : '',
     hasEmbeddedArtwork:
       kind === 'audio' && Boolean(findEmbeddedArtwork(metadata)),
   };
@@ -125,6 +132,50 @@ function registerIpcHandlers() {
       audioDuration: metadataDuration(audioProbe, 'audio'),
     };
     return selectedMedia(audioPath, inspection, 'audio');
+  });
+
+  ipcMain.handle(CHANNELS.selectAutoFolder, async (event) => {
+    const selection = await dialog.showOpenDialog(dialogOwner(event), {
+      title: 'Choose a folder of MP3 tracks',
+      properties: ['openDirectory'],
+    });
+    if (selection.canceled || selection.filePaths.length === 0) {
+      return null;
+    }
+
+    const folderPath = selection.filePaths[0];
+    const { ffmpegPath, ffprobePath } = resolveBinaryPaths({ app });
+    const preparedPairs = await prepareAutoPairInputs({
+      folderPath,
+      workRoot: app.getPath('temp'),
+      ffmpegPath,
+      ffprobePath,
+    });
+
+    return {
+      folderPath,
+      pairs: preparedPairs.map((pair) => ({
+        audio: selectedMedia(
+          pair.audioPath,
+          {
+            audio: pair.audio,
+            audioDuration: pair.duration,
+          },
+          'audio',
+        ),
+        visual: {
+          path: pair.visualPath,
+          fileUrl: fileUrl(pair.visualPath),
+          name: `Embedded artwork · ${path.basename(pair.audioPath)}`,
+          kind: 'image',
+          duration: 0,
+          width: Number(pair.artwork.width || 0),
+          height: Number(pair.artwork.height || 0),
+          codec: pair.artwork.codec_name,
+          source: 'audio-artwork',
+        },
+      })),
+    };
   });
 
   ipcMain.handle(CHANNELS.extractArtwork, async (_event, audioPath) => {
@@ -261,7 +312,7 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle(CHANNELS.renderMulti, async (_event, request) => {
+  ipcMain.handle(CHANNELS.renderMulti, async (event, request) => {
     if (renderActive) {
       throw new Error('A render is already running.');
     }
@@ -289,7 +340,13 @@ function registerIpcHandlers() {
         ffmpegPath,
         pairs: inspection.pairs,
         outputPath: request.outputPath,
+        workRoot: app.getPath('temp'),
         overwrite: true,
+        onProgress: (progress) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send(CHANNELS.renderProgress, progress);
+          }
+        },
       });
       return {
         success: true,

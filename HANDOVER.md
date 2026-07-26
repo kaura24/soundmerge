@@ -16,10 +16,17 @@
 - Title Badge Overlay 사용 시 실시간 플레이어 미리보기 캔버스 렌더링 누적 및 FFmpeg overlay 크로마 서브샘플링으로 인한 테두리 잔상/노이즈 현상을 해결했다 (`drawPreview` 내 clearRect 적용 및 FFmpeg `overlay=format=auto` 지정).
 - 이전 버전과 명확히 구분되도록 Sound Forge UI 테마(Gold/Amber)에 맞춘 5-바 이퀄라이저 웨이브폼 스쿼클 아이콘(assets/icon.png, assets/icon.icns)을 제작하고 앱 및 빌드 설정에 적용했다.
 - Electron package 진입점에서 앱 수명주기를 직접 시작하도록 수정하고, E2E smoke가 실제 production 창과 renderer 내용을 검사하게 해 빈 창 회귀를 차단했다.
+- Multi-Pair 엔진을 곡별 순차 MP4 렌더 후 stream copy concat 방식으로 교체해 입력 수 증가 시 단일 FFmpeg 프로세스가 비대해지는 문제를 제거했다.
+- Multi-Pair와 Auto Pair에 곡별 누적 진행률, 현재 곡 번호, 최종 결합 단계 표시를 추가했다.
+- 폴더를 선택하면 바로 아래 MP3를 파일명 자연 정렬로 읽고 각 파일의 내장 artwork를 자동 사용하는 Auto Pair 보드를 추가했다.
+- 실제 MP3 세 곡을 곡별 렌더하고 하나의 681.755646초 MP4로 결합해 H.264 High 1080p30 BT.709, AAC-LC 48 kHz stereo, Fast Start, 길이 오차 0.05초 이내를 확인했다.
+- 최신 macOS Universal 앱을 다시 패키징해 앱 본체·FFmpeg·FFprobe의 x86_64/arm64 포함과 패키지 내부 Auto Pair·진행률·배지 선합성·concat 코드를 확인했다. 구형 바탕화면 앱은 로컬 빌드 보관소로 이동하고 새 `Sound Forge.app`을 바탕화면에 배치했으며, 실제 실행 후 프로세스 유지와 최신 UI를 확인했다.
+- Auto Pair 제목 배지는 전역 토글로 전체 곡에 함께 적용하거나 함께 제외하며, ID3 제목을 우선 사용한다.
+- 정지 artwork와 제목 배지를 곡마다 PNG 한 장으로 사전 합성한 뒤 영상화하도록 최적화했다. 배지 포함 세 곡의 개별 렌더와 최종 concat 전체를 155.77초에 완료하고 경계 시점의 배지와 최종 규격을 확인했다.
+- 카드·입력 박스·컨트롤 랙의 배경 명도와 테두리 대비를 높이고 앱·화면·배지 마크를 골드 5-바 디자인으로 통일했다.
 
 ## 해야 할 일
 
-- Git 메타데이터 쓰기 권한이 허용되면 `main`으로 전환해 `feature/title-badge-overlay`를 `--ff-only`로 병합한다.
 - Apple Silicon Mac에서 arm64 실행과 실제 렌더링을 검증한다.
 - 배포 전 Apple Developer ID 서명과 notarization을 적용한다.
 - FFmpeg 네이티브 AAC는 384 kbps를 요청하지만 현재 샘플의 실제 평균은 약 265 kbps이므로, 384 kbps 고정이 출시 조건이면 인코더 전략을 확정한다.

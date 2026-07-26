@@ -7,9 +7,28 @@ const {
   validateMultiPairInputPaths,
 } = require('../../src/shared/media-domain');
 const {
+  buildBadgedStillFfmpegArgs,
   buildMultiPairFfmpegArgs,
+  createMultiPairMediaFile,
   inspectMultiPairInputs,
+  prepareAutoPairInputs,
 } = require('../../src/main/media-service');
+
+test('buildBadgedStillFfmpegArgs composites artwork and badge into one frame', () => {
+  const args = buildBadgedStillFfmpegArgs({
+    visualPath: '/media/artwork.jpg',
+    badgePath: '/media/title-badge.png',
+    outputPath: '/external/staged-artwork.png',
+  });
+
+  assert.ok(args.includes('/media/artwork.jpg'));
+  assert.ok(args.includes('/media/title-badge.png'));
+  assert.ok(args.includes('-filter_complex'));
+  assert.ok(args[args.indexOf('-filter_complex') + 1].includes('overlay=W-w-40:40'));
+  assert.ok(args.includes('-frames:v'));
+  assert.equal(args[args.indexOf('-frames:v') + 1], '1');
+  assert.equal(args.at(-1), '/external/staged-artwork.png');
+});
 
 test('validateMultiPairInputPaths validates array of image & audio pairs', () => {
   const pairs = [
@@ -91,4 +110,125 @@ test('buildMultiPairFfmpegArgs includes badgePath overlay filter when provided',
   const filterString = args[args.indexOf('-filter_complex') + 1];
   assert.ok(args.includes('/media/badge1.png'));
   assert.ok(filterString.includes('[base_v_0][2:v:0]overlay=W-w-40:40:format=auto:shortest=0,format=nv12[v_0]'));
+});
+
+test('createMultiPairMediaFile renders one pair at a time before concatenating', async () => {
+  const pairs = [
+    { audioPath: '/media/track1.mp3', visualPath: '/media/img1.png', visualType: 'image', duration: 10 },
+    { audioPath: '/media/track2.mp3', visualPath: '/media/img2.jpg', visualType: 'image', duration: 15 },
+    { audioPath: '/media/track3.mp3', visualPath: '/media/img3.png', visualType: 'image', duration: 20 },
+  ];
+  const files = new Set();
+  const segmentCalls = [];
+  const processCalls = [];
+  const progressEvents = [];
+  const fsPromises = {
+    access: async () => {},
+    lstat: async (filePath) => {
+      if (files.has(filePath)) return {};
+      const error = new Error('missing');
+      error.code = 'ENOENT';
+      throw error;
+    },
+    mkdtemp: async (prefix) => `${prefix}stage`,
+    writeFile: async (filePath) => {
+      files.add(filePath);
+    },
+    rename: async (_source, destination) => {
+      files.add(destination);
+    },
+    rm: async (filePath) => {
+      files.delete(filePath);
+    },
+  };
+
+  const outputPath = await createMultiPairMediaFile(
+    {
+      ffmpegPath: '/bin/ffmpeg',
+      pairs,
+      outputPath: '/output/final.mp4',
+      workRoot: '/external/test-work',
+      onProgress: (progress) => progressEvents.push(progress),
+    },
+    {
+      fsPromises,
+      idFactory: () => 'render-id',
+      createMediaFileImpl: async (request) => {
+        segmentCalls.push(request);
+        files.add(request.outputPath);
+        return request.outputPath;
+      },
+      runProcessImpl: async (binaryPath, args) => {
+        processCalls.push({ binaryPath, args });
+        files.add(args.at(-1));
+      },
+    },
+  );
+
+  assert.equal(outputPath, '/output/final.mp4');
+  assert.equal(segmentCalls.length, 3);
+  assert.deepEqual(
+    segmentCalls.map((call) => call.audioPath),
+    pairs.map((pair) => pair.audioPath),
+  );
+  assert.equal(processCalls.length, 1);
+  assert.ok(processCalls[0].args.includes('-f'));
+  assert.ok(processCalls[0].args.includes('concat'));
+  assert.ok(processCalls[0].args.includes('-c'));
+  assert.ok(processCalls[0].args.includes('copy'));
+  assert.ok(progressEvents.some((event) => event.phase === 'concatenating'));
+  assert.equal(progressEvents.at(-1).phase, 'complete');
+  assert.equal(progressEvents.at(-1).percent, 100);
+});
+
+test('prepareAutoPairInputs discovers sorted MP3 files and extracts each artwork', async () => {
+  const extracted = [];
+  const fsPromises = {
+    access: async () => {},
+    readdir: async () => [
+      { name: 'Track 10.mp3', isFile: () => true },
+      { name: 'notes.txt', isFile: () => true },
+      { name: 'Track 2.MP3', isFile: () => true },
+      { name: 'nested', isFile: () => false },
+    ],
+    rm: async () => {},
+  };
+  const probeImpl = async (audioPath) => ({
+    streams: [
+      { codec_type: 'audio', codec_name: 'mp3', duration: '12' },
+      {
+        index: 1,
+        codec_type: 'video',
+        codec_name: 'mjpeg',
+        width: 360,
+        height: 360,
+        disposition: { attached_pic: 1 },
+      },
+    ],
+    format: { format_name: 'mp3', duration: '12', filename: audioPath },
+  });
+
+  let nextId = 0;
+  const pairs = await prepareAutoPairInputs(
+    {
+      folderPath: '/music',
+      workRoot: '/external/artwork',
+      ffmpegPath: '/bin/ffmpeg',
+      ffprobePath: '/bin/ffprobe',
+    },
+    {
+      fsPromises,
+      idFactory: () => `id-${++nextId}`,
+      probeImpl,
+      extractArtworkImpl: async (request) => extracted.push(request),
+    },
+  );
+
+  assert.deepEqual(
+    pairs.map((pair) => pair.audioPath),
+    ['/music/Track 2.MP3', '/music/Track 10.mp3'],
+  );
+  assert.equal(extracted.length, 2);
+  assert.deepEqual(extracted.map((request) => request.streamIndex), [1, 1]);
+  assert.ok(pairs.every((pair) => pair.visualType === 'image'));
 });

@@ -17,9 +17,11 @@
       <header class="masthead">
         <div class="brand-lockup">
           <div class="brand-mark" aria-hidden="true">
-            <span class="brand-mark__line"></span>
-            <span class="brand-mark__core"></span>
-            <span class="brand-mark__line"></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
           </div>
           <div>
             <p class="eyebrow">Mastering instrument · 01</p>
@@ -155,6 +157,15 @@
             >
               Multi-Pair
             </button>
+            <button
+              id="modeAutoBtn"
+              class="mode-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+            >
+              Auto Pair
+            </button>
           </div>
 
           <div id="singleModeSection">
@@ -245,6 +256,28 @@
             </section>
           </div>
 
+          <div id="autoModeSection" hidden>
+            <section class="source-card" id="autoPairCard" aria-labelledby="autoPairHeading">
+              <div class="card-heading">
+                <div>
+                  <p class="eyebrow">Folder composer</p>
+                  <h2 id="autoPairHeading">Automatic artwork pairs</h2>
+                </div>
+                <span class="source-type">AUTO</span>
+              </div>
+              <p class="auto-pair-note">
+                Choose one folder. Every MP3 in that folder uses its own embedded
+                artwork, optionally adds its title badge, renders as a track video,
+                and joins into one MP4.
+              </p>
+              <button class="add-pair-button" id="selectAutoFolderBtn" type="button">
+                Choose MP3 folder
+              </button>
+              <p class="auto-folder-path" id="autoFolderPath">No folder selected</p>
+              <div class="pair-list" id="autoPairList"></div>
+            </section>
+          </div>
+
           <section class="source-card" id="titleBadgeCard" aria-labelledby="titleBadgeHeading">
             <div class="card-index" aria-hidden="true">03</div>
             <div class="card-heading">
@@ -259,7 +292,7 @@
               <input id="showTitleBadgeCheckbox" type="checkbox" />
               <span>
                 <strong>Show song title badge in top-right corner</strong>
-                <small>Overlays a sleek graphic badge on the output video</small>
+                <small>Global toggle · applies to every track in Multi/Auto Pair</small>
               </span>
             </label>
 
@@ -326,9 +359,21 @@
 
           <div class="busy-panel" id="busyPanel" role="status" aria-live="polite" hidden>
             <div class="busy-orbit" aria-hidden="true"><span></span></div>
-            <div>
-              <strong>Forging your master</strong>
-              <p>Encoding the full soundtrack and visual loop…</p>
+            <div class="busy-copy">
+              <strong id="busyTitle">Forging your master</strong>
+              <p id="busyMessage">Encoding the full soundtrack and visual loop…</p>
+              <div
+                class="render-progress"
+                id="renderProgress"
+                role="progressbar"
+                aria-label="Render progress"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+              >
+                <span id="renderProgressFill"></span>
+              </div>
+              <span class="render-progress__value" id="renderProgressValue">0%</span>
             </div>
           </div>
 
