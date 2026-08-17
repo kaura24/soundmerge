@@ -495,3 +495,24 @@ test('buildFfmpegArgs includes badgePath overlay filter when provided', () => {
   assert.ok(args.includes('/media/badge.png'));
   assert.ok(filterString.includes('[base_v][2:v:0]overlay=W-w-40:40:format=auto:shortest=0,format=nv12[v]'));
 });
+
+test('buildFfmpegArgs applies title card first and playlist overlay after its duration', () => {
+  const args = buildFfmpegArgs({
+    audioPath: '/media/song.mp3',
+    visualPath: '/media/cover.png',
+    visualType: 'image',
+    duration: 10,
+    outputPath: '/output/final.mp4',
+    badgePath: '/media/song-badge.png',
+    playlistBadgePath: '/media/playlist-badge.png',
+    titleCardPath: '/media/title-card.png',
+    titleCardDuration: 3,
+  });
+
+  const filterString = args[args.indexOf('-filter_complex') + 1];
+  assert.ok(args.includes('/media/title-card.png'));
+  assert.ok(args.includes('/media/playlist-badge.png'));
+  assert.match(filterString, /overlay=0:0:format=auto:shortest=0:enable='between\(t,0,3\)'/);
+  assert.match(filterString, /overlay=40:40:format=auto:shortest=0:enable='gte\(t,3\)'/);
+  assert.match(filterString, /overlay=W-w-40:40:format=auto:shortest=0:enable='gte\(t,3\)'/);
+});

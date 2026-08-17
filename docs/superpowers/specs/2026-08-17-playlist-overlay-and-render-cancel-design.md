@@ -6,21 +6,24 @@ Auto Pair와 Multi-Pair에서 폴더명을 작업 묶음의 플레이리스트 �
 
 ## 확정된 영상 프레임 디자인
 
-선택안 A인 `Editorial rail`을 사용한다.
+곡 재생 화면의 플레이리스트 오버레이는 선택안 A인 `Editorial rail`을 사용한다. 타이틀 카드 오프닝은 사용자가 A/B/E 세 템플릿 중 하나를 선택할 수 있다.
 
 - 좌측 상단: 앰버 세로선, 작은 `PLAYLIST` 라벨, 큰 폴더명
 - 우측 상단: 기존 곡 제목 배지와 `NOW PLAYING` 보조 라벨
 - 플레이리스트 제목은 영상 이미지 위에서 읽을 수 있도록 어두운 비네트와 그림자를 사용한다.
 - 곡 제목 배지와 폰트·앰버 색상·간격 체계는 공유하지만, 좌측 제목은 세로선과 큰 세리프 제목으로 역할을 구분한다.
 - 긴 폴더명은 렌더 전에 안전한 표시 문자열로 제한하고, 파일명에는 기존 경로 안전화 규칙을 적용한다.
+- 타이틀 카드 템플릿은 A `Editorial rail`, B `Split title`, E `Warm poster`만 제공한다. C `Framed title`과 D `Waveform grid`는 구현 범위에서 제외한다.
+- 타이틀 카드 길이는 3초 또는 5초를 선택한다. 타이틀 카드는 무음 시각 오프닝이고, 첫 MP3 오디오는 0초부터 재생되어 오프닝 위에 깔린다. 출력 길이는 기존 MP3 길이를 유지한다.
 
 ## 제목 및 출력 파일명 데이터 흐름
 
 1. Auto Pair 폴더 선택 결과에서 `path.basename(folderPath)`를 `playlistTitle`로 만든다.
 2. Multi-Pair에서는 첫 번째 페어 오디오 경로의 부모 폴더 basename을 `playlistTitle`로 만든다. 이후 다른 폴더의 페어를 추가해도 첫 제목을 유지한다.
 3. Renderer는 `playlistTitle`을 preview canvas의 좌측 상단 오버레이에 전달하고, 각 Auto/Multi 곡의 우측 상단 곡 제목 배지는 기존 방식으로 계속 생성한다.
-4. 저장 대화상자의 기본 파일명은 `${playlistTitle}.mp4`로 제안한다. 사용자가 저장 대화상자에서 직접 파일명을 바꾸면 그 선택을 유지한다.
-5. Main process 렌더 요청에는 `playlistTitle`을 검증된 문자열로 전달한다. FFmpeg 배지 PNG 생성 단계에서 플레이리스트 오버레이와 곡 제목 배지를 각각 합성하거나, 단일 프레임 합성 시 두 레이어의 위치를 명시적으로 유지한다.
+4. Auto/Multi 상태에서 선택한 타이틀 카드 템플릿과 3초/5초 길이를 renderer 상태로 유지하고, preview canvas와 render IPC 요청에 동일하게 전달한다.
+5. 저장 대화상자의 기본 파일명은 `${playlistTitle}.mp4`로 제안한다. 사용자가 저장 대화상자에서 직접 파일명을 바꾸면 그 선택을 유지한다.
+6. Main process 렌더 요청에는 `playlistTitle`과 `titleCardTemplate`, `titleCardDuration`을 검증된 값으로 전달한다. FFmpeg 배지 PNG 생성 단계에서 타이틀 카드, 플레이리스트 오버레이, 곡 제목 배지의 위치를 명시적으로 유지한다.
 
 ## 렌더 중단 및 창 닫기
 
@@ -42,6 +45,7 @@ Auto Pair와 Multi-Pair에서 폴더명을 작업 묶음의 플레이리스트 �
 - Auto Pair 제목이 선택 폴더 basename과 일치하고 기본 출력명이 `${folder}.mp4`인지 확인한다.
 - Multi-Pair 제목이 첫 페어 부모 폴더 basename과 일치하고, 다른 폴더의 페어를 추가해도 변하지 않는지 확인한다.
 - Canvas preview와 최종 FFmpeg output에서 플레이리스트는 좌측 상단, 곡 제목은 우측 상단에 표시되는지 확인한다.
+- A/B/E 템플릿과 3초/5초 길이가 preview와 최종 output에서 동일하게 적용되는지 확인한다.
 - 단일 렌더와 Multi-Pair 렌더 중 취소하면 child process가 종료되고 stage/temporary output이 정리되는지 확인한다.
 - 렌더 중 창 닫기는 자동 취소 후 종료되는지 확인한다.
 - 두 번째 앱 실행이 새 창을 만들지 않고 기존 창을 앞으로 가져오는지 E2E로 확인한다.

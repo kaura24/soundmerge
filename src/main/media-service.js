@@ -391,7 +391,19 @@ function durationArgument(value) {
   return Number(duration.toFixed(6)).toString();
 }
 
-function buildVisualFilter(duration, hasBadge = false) {
+function buildVisualFilter(
+  duration,
+  {
+    hasBadge = false,
+    hasPlaylist = false,
+    hasTitleCard = false,
+    titleCardDuration = 5,
+    badgeInputIndex = 2,
+    playlistInputIndex = 2,
+    titleCardInputIndex = 3,
+  } = {},
+) {
+  const hasAnyOverlay = hasBadge || hasPlaylist || hasTitleCard;
   const filterParts = [
     '[0:v:0]format=nv12,split=2[background_source][foreground_source]',
     '[background_source]scale=480:270:force_original_aspect_ratio=increase,' +
@@ -405,13 +417,31 @@ function buildVisualFilter(duration, hasBadge = false) {
       `fps=30,format=nv12,trim=duration=${duration},` +
       'setpts=PTS-STARTPTS,' +
       'setparams=range=limited:color_primaries=bt709:' +
-      `color_trc=bt709:colorspace=bt709[${hasBadge ? 'base_v' : 'v'}]`,
+      `color_trc=bt709:colorspace=bt709[${hasAnyOverlay ? 'base_v' : 'v'}]`,
   ];
+
+  let visualLabel = hasAnyOverlay ? 'base_v' : 'v';
+  if (hasTitleCard) {
+    filterParts.push(
+      `[${visualLabel}][${titleCardInputIndex}:v:0]overlay=0:0:format=auto:shortest=0:enable='between(t,0,${titleCardDuration})'[title_card_v]`,
+    );
+    visualLabel = 'title_card_v';
+  }
+
+  if (hasPlaylist) {
+    const enable = hasTitleCard ? `:enable='gte(t,${titleCardDuration})'` : '';
+    filterParts.push(
+      `[${visualLabel}][${playlistInputIndex}:v:0]overlay=40:40:format=auto:shortest=0${enable}[playlist_v]`,
+    );
+    visualLabel = 'playlist_v';
+  }
 
   if (hasBadge) {
     filterParts.push(
-      '[base_v][2:v:0]overlay=W-w-40:40:format=auto:shortest=0,format=nv12[v]',
+      `[${visualLabel}][${badgeInputIndex}:v:0]overlay=W-w-40:40:format=auto:shortest=0${hasTitleCard ? `:enable='gte(t,${titleCardDuration})'` : ''},format=nv12[v]`,
     );
+  } else if (visualLabel !== 'v') {
+    filterParts.push(`[${visualLabel}]format=nv12[v]`);
   }
 
   filterParts.push(
@@ -428,6 +458,9 @@ function buildFfmpegArgs({
   duration,
   outputPath,
   badgePath,
+  playlistBadgePath,
+  titleCardPath,
+  titleCardDuration,
 }) {
   const validated = validateInputPaths(audioPath, visualPath);
   const resolvedVisualType = visualType || validated.visualType;
@@ -458,13 +491,36 @@ function buildFfmpegArgs({
 
   args.push('-i', audioPath);
   const hasBadge = Boolean(badgePath && typeof badgePath === 'string');
+  const hasPlaylist = Boolean(playlistBadgePath && typeof playlistBadgePath === 'string');
+  const hasTitleCard = Boolean(titleCardPath && typeof titleCardPath === 'string');
+  let nextInputIndex = 2;
+  let playlistInputIndex = null;
+  let titleCardInputIndex = null;
+  let badgeInputIndex = null;
+  if (hasPlaylist) {
+    args.push('-loop', '1', '-framerate', '1', '-i', playlistBadgePath);
+    playlistInputIndex = nextInputIndex++;
+  }
+  if (hasTitleCard) {
+    args.push('-loop', '1', '-framerate', '1', '-i', titleCardPath);
+    titleCardInputIndex = nextInputIndex++;
+  }
   if (hasBadge) {
     args.push('-loop', '1', '-framerate', '1', '-i', badgePath);
+    badgeInputIndex = nextInputIndex++;
   }
 
   args.push(
     '-filter_complex',
-    buildVisualFilter(exactDuration, hasBadge),
+    buildVisualFilter(exactDuration, {
+      hasBadge,
+      hasPlaylist,
+      hasTitleCard,
+      titleCardDuration: Number(titleCardDuration) || 5,
+      badgeInputIndex: badgeInputIndex ?? 2,
+      playlistInputIndex: playlistInputIndex ?? 2,
+      titleCardInputIndex: titleCardInputIndex ?? 3,
+    }),
     '-map',
     '[v]',
     '-map',
@@ -555,6 +611,9 @@ async function createMediaFile(
     duration,
     outputPath,
     badgePath,
+    playlistBadgePath,
+    titleCardPath,
+    titleCardDuration,
     overwrite = false,
   },
   {
@@ -613,6 +672,9 @@ async function createMediaFile(
     duration,
     outputPath: tempPath,
     badgePath,
+    playlistBadgePath,
+    titleCardPath,
+    titleCardDuration,
   });
 
   try {
@@ -637,7 +699,13 @@ async function createMediaFile(
   return absoluteOutputPath;
 }
 
-function buildMultiPairFfmpegArgs({ pairs, outputPath }) {
+function buildMultiPairFfmpegArgs({
+  pairs,
+  outputPath,
+  playlistBadgePath,
+  titleCardPath,
+  titleCardDuration,
+}) {
   if (!Array.isArray(pairs) || pairs.length === 0) {
     throw new InputValidationError(
       'At least one image and audio pair is required.',
@@ -660,6 +728,20 @@ function buildMultiPairFfmpegArgs({ pairs, outputPath }) {
   let totalDurationSeconds = 0;
   let inputIndex = 0;
 
+  let playlistIdx = null;
+  if (playlistBadgePath && typeof playlistBadgePath === 'string') {
+    args.push('-loop', '1', '-framerate', '1', '-i', playlistBadgePath);
+    playlistIdx = inputIndex++;
+  }
+
+  let titleCardIdx = null;
+  if (titleCardPath && typeof titleCardPath === 'string') {
+    args.push('-loop', '1', '-framerate', '1', '-i', titleCardPath);
+    titleCardIdx = inputIndex++;
+  }
+
+  const normalizedTitleCardDuration = Number(titleCardDuration);
+
   pairs.forEach((pair, i) => {
     const visualType = pair.visualType || 'image';
     if (visualType === 'image') {
@@ -680,17 +762,51 @@ function buildMultiPairFfmpegArgs({ pairs, outputPath }) {
     const durArg = durationArgument(pair.duration);
     totalDurationSeconds += parseDurationSeconds(pair.duration, `Pair ${i + 1} audio`);
 
-    const baseV = badgeIdx !== null ? `base_v_${i}` : `v_${i}`;
-    filterParts.push(
+    let visualLabel = badgeIdx !== null || playlistIdx !== null || (i === 0 && titleCardIdx !== null)
+      ? `base_v_${i}`
+      : `v_${i}`;
+    const filter = [
       `[${vIdx}:v:0]format=nv12,split=2[bg_src_${i}][fg_src_${i}];` +
         `[bg_src_${i}]scale=480:270:force_original_aspect_ratio=increase,crop=480:270,scale=1920:1080:flags=bicubic:out_range=tv,setsar=1,format=nv12[bg_${i}];` +
         `[fg_src_${i}]scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv,setsar=1,format=nv12[fg_${i}];` +
-        `[bg_${i}][fg_${i}]overlay=(W-w)/2:(H-h)/2:shortest=0,fps=30,format=nv12,trim=duration=${durArg},setpts=PTS-STARTPTS,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709[${baseV}];` +
-        (badgeIdx !== null
-          ? `[${baseV}][${badgeIdx}:v:0]overlay=W-w-40:40:format=auto:shortest=0,format=nv12[v_${i}];`
-          : '') +
-        `[${aIdx}:a:0]apad,atrim=duration=${durArg},asetpts=N/SR/TB[a_${i}]`,
-    );
+        `[bg_${i}][fg_${i}]overlay=(W-w)/2:(H-h)/2:shortest=0,fps=30,format=nv12,trim=duration=${durArg},setpts=PTS-STARTPTS,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709[${visualLabel}];`,
+    ];
+
+    if (i === 0 && titleCardIdx !== null) {
+      const duration = Number.isFinite(normalizedTitleCardDuration) && normalizedTitleCardDuration > 0
+        ? normalizedTitleCardDuration
+        : 5;
+      const nextLabel = `title_v_${i}`;
+      filter.push(
+        `[${visualLabel}][${titleCardIdx}:v:0]overlay=0:0:format=auto:shortest=0:enable='between(t,0,${duration})'[${nextLabel}];`,
+      );
+      visualLabel = nextLabel;
+    }
+
+    if (playlistIdx !== null) {
+      const enable = i === 0 && titleCardIdx !== null
+        ? `:enable='gte(t,${normalizedTitleCardDuration || 5})'`
+        : '';
+      const nextLabel = `playlist_v_${i}`;
+      filter.push(
+        `[${visualLabel}][${playlistIdx}:v:0]overlay=40:40:format=auto:shortest=0${enable}[${nextLabel}];`,
+      );
+      visualLabel = nextLabel;
+    }
+
+    if (badgeIdx !== null) {
+      const enable = i === 0 && titleCardIdx !== null
+        ? `:enable='gte(t,${normalizedTitleCardDuration || 5})'`
+        : '';
+      filter.push(
+        `[${visualLabel}][${badgeIdx}:v:0]overlay=W-w-40:40:format=auto:shortest=0${enable},format=nv12[v_${i}];`,
+      );
+    } else if (visualLabel !== `v_${i}`) {
+      filter.push(`[${visualLabel}]format=nv12[v_${i}];`);
+    }
+
+    filter.push(`[${aIdx}:a:0]apad,atrim=duration=${durArg},asetpts=N/SR/TB[a_${i}]`);
+    filterParts.push(filter.join(''));
     concatInputs.push(`[v_${i}][a_${i}]`);
   });
 
@@ -1072,6 +1188,9 @@ async function createMultiPairMediaFile(
     outputPath,
     workRoot,
     overwrite = false,
+    playlistBadgePath,
+    titleCardPath,
+    titleCardDuration,
     onProgress = () => {},
   },
   {
@@ -1200,6 +1319,9 @@ async function createMultiPairMediaFile(
           duration: pair.duration,
           outputPath: segmentPath,
           badgePath,
+          playlistBadgePath,
+          titleCardPath: index === 0 ? titleCardPath : null,
+          titleCardDuration: index === 0 ? titleCardDuration : null,
         },
         {
           fsPromises,

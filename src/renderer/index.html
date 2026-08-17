@@ -10,6 +10,8 @@
     <meta name="color-scheme" content="dark" />
     <title>Sound Forge</title>
     <link rel="stylesheet" href="./styles.css" />
+    <script src="../shared/playlist-domain.js"></script>
+    <script src="../shared/title-card-domain.js"></script>
     <script src="./renderer.js" defer></script>
   </head>
   <body>
@@ -304,6 +306,39 @@
                 class="badge-text-input"
                 placeholder="Custom song title (leave blank for automatic track name)"
               />
+            </div>
+          </section>
+
+          <section class="source-card title-card-card" id="titleCardCard" aria-labelledby="titleCardHeading" hidden>
+            <div class="card-index">05</div>
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">Opening sequence</p>
+                <h2 id="titleCardHeading">Title card</h2>
+              </div>
+              <span class="source-type">A / B / E</span>
+            </div>
+            <p class="title-card-note">
+              Add a visual opening before the first track. Audio starts at 00:00 underneath the title card.
+            </p>
+            <div class="title-card-options" role="radiogroup" aria-label="Title card template">
+              <button class="title-card-option title-card-option--active" type="button" data-title-card-template="editorial" aria-pressed="true">
+                <strong>A · Editorial rail</strong>
+                <small>Amber rail + serif title</small>
+              </button>
+              <button class="title-card-option" type="button" data-title-card-template="split" aria-pressed="false">
+                <strong>B · Split title</strong>
+                <small>Dark panel + image split</small>
+              </button>
+              <button class="title-card-option" type="button" data-title-card-template="warm" aria-pressed="false">
+                <strong>E · Warm poster</strong>
+                <small>Warm diagonal poster</small>
+              </button>
+            </div>
+            <div class="title-card-duration" role="radiogroup" aria-label="Title card duration">
+              <span class="title-card-duration__label">DURATION</span>
+              <button type="button" data-title-card-duration="3" aria-pressed="false">3 SEC</button>
+              <button type="button" class="title-card-duration--active" data-title-card-duration="5" aria-pressed="true">5 SEC</button>
             </div>
           </section>
 

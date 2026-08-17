@@ -1460,8 +1460,83 @@ h2 {
 .multi-pair-badge-wrap {
   margin-top: 6px;
 }
+.title-card-note {
+  margin: 12px 0 0;
+  color: var(--paper-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.title-card-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 12px;
+}
+.title-card-option {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #59615a;
+  color: var(--paper-muted);
+  background: #101411;
+  cursor: pointer;
+  text-align: left;
+}
+.title-card-option:hover,
+.title-card-option--active {
+  border-color: var(--amber);
+  color: var(--paper);
+  background: var(--amber-faint);
+}
+.title-card-option strong,
+.title-card-option small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.title-card-option strong {
+  font-size: 10px;
+}
+.title-card-option small {
+  margin-top: 4px;
+  color: var(--paper-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+.title-card-duration {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.title-card-duration__label {
+  margin-right: auto;
+  color: var(--paper-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: .12em;
+}
+.title-card-duration button {
+  min-width: 58px;
+  padding: 7px 9px;
+  border: 1px solid #59615a;
+  color: var(--paper-muted);
+  background: #101411;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 9px;
+}
+.title-card-duration button:hover,
+.title-card-duration--active {
+  border-color: var(--amber) !important;
+  color: var(--paper) !important;
+  background: var(--amber-faint) !important;
+}
 @media (max-width: 680px) {
   .pair-pickers {
+    grid-template-columns: 1fr;
+  }
+  .title-card-options {
     grid-template-columns: 1fr;
   }
 }

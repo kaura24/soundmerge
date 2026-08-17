@@ -74,6 +74,28 @@ test('buildMultiPairFfmpegArgs generates correct FFmpeg filter graph and duratio
   assert.equal(args[args.length - 1], '/media/output.mp4');
 });
 
+test('buildMultiPairFfmpegArgs prepends a title card and persistent playlist overlay', () => {
+  const args = buildMultiPairFfmpegArgs({
+    pairs: [
+      { audioPath: '/media/track1.mp3', visualPath: '/media/img1.png', visualType: 'image', duration: 10 },
+      { audioPath: '/media/track2.mp3', visualPath: '/media/img2.png', visualType: 'image', duration: 15 },
+      { audioPath: '/media/track3.mp3', visualPath: '/media/img3.png', visualType: 'image', duration: 12 },
+    ],
+    outputPath: '/media/output.mp4',
+    playlistBadgePath: '/media/playlist-badge.png',
+    titleCardPath: '/media/title-card.png',
+    titleCardDuration: 5,
+  });
+
+  assert.ok(args.includes('/media/playlist-badge.png'));
+  assert.ok(args.includes('/media/title-card.png'));
+  const filter = args[args.indexOf('-filter_complex') + 1];
+  assert.match(filter, /overlay=0:0:format=auto:shortest=0:enable='between\(t,0,5\)'/);
+  assert.match(filter, /overlay=40:40:format=auto:shortest=0:enable='gte\(t,5\)'/);
+  assert.match(filter, /concat=n=3:v=1:a=1\[v\]\[a\]/);
+  assert.equal(args[args.indexOf('-t') + 1], '37');
+});
+
 test('inspectMultiPairInputs classifies each visual before validating its probe', async () => {
   const audioProbe = {
     streams: [{ codec_type: 'audio', codec_name: 'mp3', duration: '12' }],

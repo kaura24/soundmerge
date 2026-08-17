@@ -319,10 +319,22 @@ function registerIpcHandlers() {
     }
     renderActive = true;
     const tempBadgePaths = [];
+    let playlistBadgePath = null;
+    let titleCardPath = null;
 
     try {
       const { ffmpegPath, ffprobePath } = resolveBinaryPaths({ app });
       const targetDir = path.dirname(path.resolve(request.outputPath));
+      playlistBadgePath = await saveTempBadgeImage(
+        request.playlistBadgeDataUrl,
+        targetDir,
+      );
+      titleCardPath = await saveTempBadgeImage(
+        request.titleCardDataUrl,
+        targetDir,
+      );
+      if (playlistBadgePath) tempBadgePaths.push(playlistBadgePath);
+      if (titleCardPath) tempBadgePaths.push(titleCardPath);
       const pairsWithBadges = await Promise.all(
         request.pairs.map(async (pair) => {
           const badgePath = await saveTempBadgeImage(pair.badgeDataUrl, targetDir);
@@ -343,6 +355,9 @@ function registerIpcHandlers() {
         outputPath: request.outputPath,
         workRoot: app.getPath('temp'),
         overwrite: true,
+        playlistBadgePath,
+        titleCardPath,
+        titleCardDuration: request.titleCardDuration,
         onProgress: (progress) => {
           if (!event.sender.isDestroyed()) {
             event.sender.send(CHANNELS.renderProgress, progress);

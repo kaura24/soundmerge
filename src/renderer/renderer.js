@@ -1,6 +1,8 @@
 "use strict";
 
 const api = window.soundForge;
+const playlistDomain = window.SoundForgePlaylistDomain;
+const titleCardDomain = window.SoundForgeTitleCardDomain;
 
 const elements = {
   addPairBtn: document.querySelector("#addPairBtn"),
@@ -61,6 +63,7 @@ const elements = {
   showTitleBadgeCheckbox: document.querySelector("#showTitleBadgeCheckbox"),
   badgeInputWrap: document.querySelector("#badgeInputWrap"),
   titleBadgeInput: document.querySelector("#titleBadgeInput"),
+  titleCardCard: document.querySelector("#titleCardCard"),
 };
 
 const previewAudio = new Audio();
@@ -90,6 +93,8 @@ const state = {
   previewPairOffset: 0,
   showTitleBadge: false,
   titleBadgeText: "",
+  titleCardTemplate: titleCardDomain?.DEFAULT_TITLE_CARD_TEMPLATE || "editorial",
+  titleCardDuration: titleCardDomain?.DEFAULT_TITLE_CARD_DURATION || 5,
 };
 
 function isPairMode(mode = state.mode) {
@@ -150,11 +155,48 @@ function basename(filePath) {
 }
 
 function outputSuggestion() {
-  const sourceName = isPairMode()
-    ? state.pairs[0]?.audio?.name || "sound-forge-master.mp3"
-    : state.audio?.name || "sound-forge-master.mp3";
+  if (isPairMode() && playlistDomain) {
+    return playlistDomain.outputNameForPlaylist(
+      playlistDomain.playlistTitleForState(state),
+    );
+  }
+
+  const sourceName = state.audio?.name || "sound-forge-master.mp3";
   const stem = sourceName.replace(/\.[^.]+$/, "").trim() || "sound-forge-master";
   return `${stem}-master.mp4`;
+}
+
+function currentPlaylistTitle() {
+  return playlistDomain
+    ? playlistDomain.playlistTitleForState(state)
+    : "Untitled Playlist";
+}
+
+function titleCardTemplateValue() {
+  return titleCardDomain
+    ? titleCardDomain.normalizeTitleCardTemplate(state.titleCardTemplate)
+    : state.titleCardTemplate;
+}
+
+function titleCardDurationValue() {
+  return titleCardDomain
+    ? titleCardDomain.normalizeTitleCardDuration(state.titleCardDuration)
+    : state.titleCardDuration;
+}
+
+function updateTitleCardControls() {
+  if (!elements.titleCardCard) return;
+  elements.titleCardCard.hidden = !isPairMode();
+  elements.titleCardCard.querySelectorAll("[data-title-card-template]").forEach((button) => {
+    const active = button.dataset.titleCardTemplate === titleCardTemplateValue();
+    button.classList.toggle("title-card-option--active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  elements.titleCardCard.querySelectorAll("[data-title-card-duration]").forEach((button) => {
+    const active = Number(button.dataset.titleCardDuration) === titleCardDurationValue();
+    button.classList.toggle("title-card-duration--active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
 }
 
 function filePathToUrl(filePath) {
@@ -273,6 +315,7 @@ function updateActionAvailability() {
     elements.showTitleBadgeCheckbox.disabled = state.isBusy;
   }
   if (elements.titleBadgeInput) elements.titleBadgeInput.disabled = state.isBusy;
+  updateTitleCardControls();
   refreshTimeline();
 }
 
@@ -518,6 +561,139 @@ function getTitleBadgeDataUrl(text) {
   return getTitleBadgeCanvas(text).toDataURL("image/png");
 }
 
+const playlistCanvasCache = new Map();
+const titleCardCanvasCache = new Map();
+
+function getPlaylistOverlayCanvas(text) {
+  const normalizedText = String(text || "Untitled Playlist").trim() || "Untitled Playlist";
+  if (playlistCanvasCache.has(normalizedText)) {
+    return playlistCanvasCache.get(normalizedText);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 720;
+  canvas.height = 190;
+  const ctx = canvas.getContext("2d");
+  ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 7;
+  ctx.fillStyle = "rgba(8, 12, 10, 0.38)";
+  ctx.fillRect(28, 26, 4, 136);
+  ctx.shadowColor = "transparent";
+  ctx.fillStyle = "#f2bf63";
+  ctx.fillRect(28, 26, 4, 136);
+  ctx.font = "700 22px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  ctx.letterSpacing = "5px";
+  ctx.fillText("PLAYLIST", 62, 64);
+  ctx.font = "400 66px Georgia, 'Times New Roman', serif";
+  ctx.fillStyle = "#f0eadf";
+  const maxWidth = canvas.width - 90;
+  let displayText = normalizedText;
+  while (ctx.measureText(displayText).width > maxWidth && displayText.length > 3) {
+    displayText = `${displayText.slice(0, -4)}…`;
+  }
+  ctx.fillText(displayText, 62, 133);
+  playlistCanvasCache.set(normalizedText, canvas);
+  return canvas;
+}
+
+function getTitleCardCanvas(template, text) {
+  const normalizedTemplate = titleCardDomain
+    ? titleCardDomain.normalizeTitleCardTemplate(template)
+    : template;
+  const normalizedText = String(text || "Untitled Playlist").trim() || "Untitled Playlist";
+  const cacheKey = `${normalizedTemplate}:${normalizedText}`;
+  if (titleCardCanvasCache.has(cacheKey)) {
+    return titleCardCanvasCache.get(cacheKey);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 1920;
+  canvas.height = 1080;
+  const ctx = canvas.getContext("2d");
+  const warm = "#d69a3a";
+  const bright = "#f2bf63";
+  const paper = "#f0eadf";
+  const dark = "#090d0b";
+
+  ctx.fillStyle = dark;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (normalizedTemplate === "split") {
+    const left = ctx.createLinearGradient(0, 0, canvas.width * 0.52, canvas.height);
+    left.addColorStop(0, "#111913");
+    left.addColorStop(1, "#29352c");
+    ctx.fillStyle = left;
+    ctx.fillRect(0, 0, canvas.width * 0.52, canvas.height);
+    const right = ctx.createLinearGradient(canvas.width * 0.52, 0, canvas.width, canvas.height);
+    right.addColorStop(0, "#8a5b32");
+    right.addColorStop(0.55, "#c58a43");
+    right.addColorStop(1, "#2b302a");
+    ctx.fillStyle = right;
+    ctx.fillRect(canvas.width * 0.52, 0, canvas.width * 0.48, canvas.height);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+    ctx.fillRect(canvas.width * 0.52, 0, canvas.width * 0.48, canvas.height);
+  } else if (normalizedTemplate === "warm") {
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, "#231d18");
+    gradient.addColorStop(0.43, "#9a6636");
+    gradient.addColorStop(0.44, "#263127");
+    gradient.addColorStop(1, "#0c110e");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(242, 191, 99, 0.12)";
+    ctx.beginPath();
+    ctx.arc(1390, 520, 280, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    const gradient = ctx.createRadialGradient(1220, 360, 80, 940, 540, 960);
+    gradient.addColorStop(0, "#68492b");
+    gradient.addColorStop(0.28, "#2d2f28");
+    gradient.addColorStop(1, "#0b100d");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.34)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+  ctx.shadowBlur = 26;
+  ctx.shadowOffsetY = 10;
+  ctx.fillStyle = bright;
+  ctx.fillRect(140, 286, 7, 370);
+  ctx.shadowColor = "transparent";
+  ctx.font = "700 28px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  ctx.fillStyle = bright;
+  ctx.fillText("PLAYLIST", 190, 352);
+  ctx.font = "400 112px Georgia, 'Times New Roman', serif";
+  ctx.fillStyle = paper;
+  let displayText = normalizedText;
+  while (ctx.measureText(displayText).width > 1260 && displayText.length > 3) {
+    displayText = `${displayText.slice(0, -4)}…`;
+  }
+  ctx.fillText(displayText, 190, 490);
+  ctx.font = "700 20px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  ctx.fillStyle = "rgba(240, 234, 223, 0.65)";
+  ctx.fillText("SOUND FORGE  ·  MASTERING DESK", 190, 548);
+  ctx.font = "700 18px monospace";
+  ctx.fillStyle = warm;
+  ctx.fillText("AUTO / MULTI PAIR", 190, 610);
+  titleCardCanvasCache.set(cacheKey, canvas);
+  return canvas;
+}
+
+function getPlaylistOverlayDataUrl(text) {
+  return getPlaylistOverlayCanvas(text).toDataURL("image/png");
+}
+
+function getTitleCardDataUrl(template, text) {
+  return getTitleCardCanvas(template, text).toDataURL("image/png");
+}
+
+function isTitleCardActive() {
+  return isPairMode() && state.pairs.length > 0 && previewTimelinePosition() < titleCardDurationValue();
+}
+
 function getCurrentPair() {
   if (!isPairMode() || state.pairs.length === 0) return null;
   const current = previewTimelinePosition();
@@ -607,13 +783,17 @@ function drawPreview() {
 
   const visual = currentVisual || state.visual;
   const kind = visual ? normalizedVisualKind(visual) : null;
+  const titleCardActive = isTitleCardActive();
 
   const isVideoReady = kind === "video" && previewVideo.readyState >= 2 && previewVideo.videoWidth > 0;
   const isImageReady = kind === "image" && previewImage.complete && previewImage.naturalWidth > 0;
 
   canvasContext.clearRect(0, 0, width, height);
 
-  if (isVideoReady || isImageReady) {
+  if (titleCardActive) {
+    const titleCardCanvas = getTitleCardCanvas(titleCardTemplateValue(), currentPlaylistTitle());
+    canvasContext.drawImage(titleCardCanvas, 0, 0, width, height);
+  } else if (isVideoReady || isImageReady) {
     offscreenCanvas.width = width;
     offscreenCanvas.height = height;
 
@@ -629,7 +809,19 @@ function drawPreview() {
     canvasContext.fillRect(0, 0, width, height);
   }
 
-  if (state.showTitleBadge) {
+  if (isPairMode() && !titleCardActive) {
+    const playlistCanvas = getPlaylistOverlayCanvas(currentPlaylistTitle());
+    const scale = width / 1920;
+    canvasContext.drawImage(
+      playlistCanvas,
+      40 * scale,
+      40 * scale,
+      playlistCanvas.width * scale,
+      playlistCanvas.height * scale,
+    );
+  }
+
+  if (state.showTitleBadge && !titleCardActive) {
     const badgeText = getActiveBadgeText();
     if (badgeText) {
       const badgeCanvas = getTitleBadgeCanvas(badgeText);
@@ -642,7 +834,7 @@ function drawPreview() {
     }
   }
 
-  if (!previewAudio.paused && kind === "video") {
+  if (!previewAudio.paused && (kind === "video" || isPairMode())) {
     state.animationFrame = window.requestAnimationFrame(drawPreview);
   } else {
     state.animationFrame = null;
@@ -898,6 +1090,8 @@ function resetSession() {
   state.previewPairOffset = 0;
   state.outputPath = "";
   state.outputFileUrl = "";
+  state.titleCardTemplate = titleCardDomain?.DEFAULT_TITLE_CARD_TEMPLATE || "editorial";
+  state.titleCardDuration = titleCardDomain?.DEFAULT_TITLE_CARD_DURATION || 5;
 
   elements.audioName.textContent = "Choose an audio file";
   elements.audioMeta.textContent = "MP3 · one track";
@@ -1261,6 +1455,13 @@ async function renderMaster() {
           };
         }),
         outputPath: state.outputPath,
+        playlistBadgeDataUrl: getPlaylistOverlayDataUrl(currentPlaylistTitle()),
+        titleCardDataUrl: getTitleCardDataUrl(
+          titleCardTemplateValue(),
+          currentPlaylistTitle(),
+        ),
+        titleCardTemplate: titleCardTemplateValue(),
+        titleCardDuration: titleCardDurationValue(),
       });
     } else {
       result = await api.render({
@@ -1378,6 +1579,22 @@ if (elements.titleBadgeInput) {
   elements.titleBadgeInput.addEventListener("input", (e) => {
     state.titleBadgeText = e.target.value;
     drawPreview();
+  });
+}
+if (elements.titleCardCard) {
+  elements.titleCardCard.querySelectorAll("[data-title-card-template]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.titleCardTemplate = button.dataset.titleCardTemplate;
+      updateTitleCardControls();
+      drawPreview();
+    });
+  });
+  elements.titleCardCard.querySelectorAll("[data-title-card-duration]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.titleCardDuration = Number(button.dataset.titleCardDuration);
+      updateTitleCardControls();
+      drawPreview();
+    });
   });
 }
 elements.selectOutputButton.addEventListener("click", selectOutput);
