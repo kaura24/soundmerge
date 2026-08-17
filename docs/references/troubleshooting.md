@@ -132,10 +132,14 @@ npm run package:mac
 ## 2026-08-17 해결 검증
 
 - 브라우저 공유 스크립트 회귀 테스트 6개가 통과했다.
-- Electron GUI smoke가 `hasCancelBridge`, `hasCancelButton`, A/B/E 템플릿, 3초/5초 컨트롤을 포함해 통과했다.
+- Electron GUI smoke가 `hasCancelBridge`, `hasCancelButton`, A/B/E 템플릿, 3초/5초 컨트롤, 외부 타이틀 picker/bridge를 포함해 통과했다.
 - Electron GUI 컨텍스트의 번들 FFmpeg VideoToolbox 1초 인코딩이 종료 코드 0으로 성공했다.
-- `List1` 실제 MP3 3곡 렌더가 100% 완료됐다.
+- `List1`의 `01_`, `02_`, `03_` 실제 MP3 3곡 렌더가 100% 완료됐다.
 - 최종 출력은 H.264 High, 1920×1080, 30fps, yuv420p, AAC-LC 48kHz stereo였다.
-- 원본 합계 681.720937초와 출력 681.755646초의 차이는 0.034709초로 허용치 0.05초 이내였다.
+- 내부 5초 타이틀 결과는 원본 합계 583.401125초와 출력 583.422313초의 차이가 0.021188초였다.
+- 외부 4.01초 타이틀 결과는 예상 587.411125초와 출력 587.432313초의 차이가 0.021188초였다.
+- 내부 타이틀 구간, 외부 타이틀 구간, 곡 구간의 오디오 신호와 전체 AAC 디코딩을 확인했다.
+- 실제 렌더 취소와 렌더 중 창 닫기 모두 최종·임시 출력 없이 종료됐다.
 - MP4의 `moov` atom이 offset 36에 있고 `mdat`보다 앞에 있어 Fast Start를 확인했다.
 - 새 `package:mac` 외부 작업공간 빌드 후 프로젝트 루트에 `node_modules`나 Electron 캐시가 남지 않았고 preflight가 다시 통과했다.
+- 최종 r2 Universal 앱·FFmpeg·FFprobe에 x86_64/arm64가 포함됐고 Intel 실행·단일 인스턴스·골드 아이콘 해시 일치를 확인했다.

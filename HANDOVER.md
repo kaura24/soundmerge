@@ -32,7 +32,7 @@
 - 내부 5초 A안과 외부 4.01초 타이틀을 각각 실제 01→02→03 렌더로 확인했다. 내부/외부 타이틀, `List1`, 세 곡 제목 배지, 외부 타이틀 오디오와 곡 오디오가 모두 정상이며 두 결과의 길이 오차는 0.05초 이내였다.
 - `npm run package:mac`이 `ENV_DIR/package-work.*` 외부 임시 작업공간에서만 빌드하도록 수정했다. 프로젝트 루트에 생겼던 `node_modules`와 `${env.ELECTRON_CACHE_DIR}` 캐시는 제거했고 preflight가 다시 통과했다.
 - 재현된 개발·테스트 문제와 해결 명령은 `docs/references/troubleshooting.md`에 기록했다. 같은 증상이 생기면 이 문서를 먼저 확인한다.
-- `origin`은 `https://github.com/kaura24/soundmerge.git`로 등록되어 있으며, SSH 인증으로 `023b1c2`까지 `main` 브랜치에 push했다. 최신 구현 커밋은 최종 검증 전이라 아직 push하지 않았다.
+- `origin`은 `https://github.com/kaura24/soundmerge.git`로 등록되어 있으며, SSH 인증으로 검증된 구현과 문서를 `main` 브랜치에 push했다. 빌드 앱과 테스트 raw artifact는 push하지 않았다.
 
 ## 해야 할 일
 
