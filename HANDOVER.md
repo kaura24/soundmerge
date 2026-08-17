@@ -35,4 +35,4 @@
 - 첨부 artwork가 포함된 실제 인터넷 MP3로 GUI 선택 및 최종 렌더링을 추가 검증한다.
 - Auto/Multi 좌측 상단 플레이리스트 제목과 폴더명 기반 기본 마스터 파일명을 구현한다.
 - 렌더링 중 `Cancel render`, 창 닫기 시 FFmpeg 자동 중단과 임시 출력 정리를 구현하고 검증한다.
-- 현재 Git 저장소에 `origin` 원격 주소가 없어 `9dcc8bc`를 push하지 못했다. 원격 URL을 설정한 뒤 push한다.
+- `origin`을 `https://github.com/kaura24/soundmerge.git`로 등록했지만, GitHub HTTPS 인증 자격 증명이 없어 `6129820`과 `9dcc8bc`를 push하지 못했다. GitHub 인증 후 `git push origin main`을 실행한다.
