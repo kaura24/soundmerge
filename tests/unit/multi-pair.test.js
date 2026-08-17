@@ -186,9 +186,11 @@ test('prepareAutoPairInputs discovers sorted MP3 files and extracts each artwork
   const fsPromises = {
     access: async () => {},
     readdir: async () => [
-      { name: 'Track 10.mp3', isFile: () => true },
+      { name: '10 Finale.mp3', isFile: () => true },
       { name: 'notes.txt', isFile: () => true },
       { name: 'Track 2.MP3', isFile: () => true },
+      { name: '2 Second.mp3', isFile: () => true },
+      { name: '001 Intro.mp3', isFile: () => true },
       { name: 'nested', isFile: () => false },
     ],
     rm: async () => {},
@@ -226,9 +228,18 @@ test('prepareAutoPairInputs discovers sorted MP3 files and extracts each artwork
 
   assert.deepEqual(
     pairs.map((pair) => pair.audioPath),
-    ['/music/Track 2.MP3', '/music/Track 10.mp3'],
+    [
+      '/music/001 Intro.mp3',
+      '/music/2 Second.mp3',
+      '/music/10 Finale.mp3',
+      '/music/Track 2.MP3',
+    ],
   );
-  assert.equal(extracted.length, 2);
-  assert.deepEqual(extracted.map((request) => request.streamIndex), [1, 1]);
+  assert.deepEqual(
+    pairs.map((pair) => pair.trackNumber),
+    ['001', '2', '10', null],
+  );
+  assert.equal(extracted.length, 4);
+  assert.deepEqual(extracted.map((request) => request.streamIndex), [1, 1, 1, 1]);
   assert.ok(pairs.every((pair) => pair.visualType === 'image'));
 });

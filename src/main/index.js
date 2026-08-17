@@ -155,6 +155,7 @@ function registerIpcHandlers() {
     return {
       folderPath,
       pairs: preparedPairs.map((pair) => ({
+        trackNumber: pair.trackNumber,
         audio: selectedMedia(
           pair.audioPath,
           {

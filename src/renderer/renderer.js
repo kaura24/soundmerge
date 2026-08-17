@@ -1069,8 +1069,11 @@ function renderPairList() {
 
     const header = document.createElement("div");
     header.className = "pair-item__header";
+    const autoOrderLabel = pair.trackNumber
+      ? `TRACK ${pair.trackNumber} · AUTO #${index + 1}`
+      : `UNNUMBERED · AUTO #${index + 1}`;
     header.innerHTML = `
-      <span class="pair-item__title">${state.mode === "auto" ? "AUTO" : "PAIR"} #${index + 1}</span>
+      <span class="pair-item__title">${state.mode === "auto" ? autoOrderLabel : `PAIR #${index + 1}`}</span>
       <div class="pair-item__controls">
         ${index > 0 ? `<button class="pair-btn" data-action="up" data-index="${index}">▲</button>` : ''}
         ${index < state.pairs.length - 1 ? `<button class="pair-btn" data-action="down" data-index="${index}">▼</button>` : ''}
@@ -1201,6 +1204,7 @@ async function selectAutoFolder() {
     state.autoFolderPath = selection.folderPath;
     state.pairs = selection.pairs.map((pair) => ({
       id: Date.now() + Math.random(),
+      trackNumber: pair.trackNumber || null,
       audio: pair.audio,
       visual: pair.visual,
     }));

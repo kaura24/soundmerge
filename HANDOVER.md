@@ -18,7 +18,7 @@
 - Electron package 진입점에서 앱 수명주기를 직접 시작하도록 수정하고, E2E smoke가 실제 production 창과 renderer 내용을 검사하게 해 빈 창 회귀를 차단했다.
 - Multi-Pair 엔진을 곡별 순차 MP4 렌더 후 stream copy concat 방식으로 교체해 입력 수 증가 시 단일 FFmpeg 프로세스가 비대해지는 문제를 제거했다.
 - Multi-Pair와 Auto Pair에 곡별 누적 진행률, 현재 곡 번호, 최종 결합 단계 표시를 추가했다.
-- 폴더를 선택하면 바로 아래 MP3를 파일명 자연 정렬로 읽고 각 파일의 내장 artwork를 자동 사용하는 Auto Pair 보드를 추가했다.
+- 폴더를 선택하면 바로 아래 MP3 파일명 시작 숫자를 곡 순번으로 읽어 숫자 오름차순으로 배치하고, 번호 없는 파일은 뒤에서 자연 정렬하며, 각 파일의 내장 artwork를 자동 사용하는 Auto Pair 보드를 추가했다.
 - 실제 MP3 세 곡을 곡별 렌더하고 하나의 681.755646초 MP4로 결합해 H.264 High 1080p30 BT.709, AAC-LC 48 kHz stereo, Fast Start, 길이 오차 0.05초 이내를 확인했다.
 - 최신 macOS Universal 앱을 다시 패키징해 앱 본체·FFmpeg·FFprobe의 x86_64/arm64 포함과 패키지 내부 Auto Pair·진행률·배지 선합성·concat 코드를 확인했다. 구형 바탕화면 앱은 로컬 빌드 보관소로 이동하고 새 `Sound Forge.app`을 바탕화면에 배치했으며, 실제 실행 후 프로세스 유지와 최신 UI를 확인했다.
 - Auto Pair 제목 배지는 전역 토글로 전체 곡에 함께 적용하거나 함께 제외하며, ID3 제목을 우선 사용한다.

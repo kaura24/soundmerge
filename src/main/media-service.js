@@ -914,6 +914,53 @@ async function inspectMultiPairInputs(
   };
 }
 
+function naturalFilenameCompare(left, right) {
+  return path.basename(left).localeCompare(path.basename(right), 'en', {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
+function leadingTrackNumber(filePath) {
+  const filename = path.basename(filePath, path.extname(filePath));
+  const match = filename.match(/^\s*(\d+)/u);
+  if (!match) {
+    return null;
+  }
+
+  const label = match[1];
+  return {
+    label,
+    magnitude: label.replace(/^0+(?=\d)/u, ''),
+  };
+}
+
+function compareTrackNumberMagnitude(left, right) {
+  if (left.magnitude.length !== right.magnitude.length) {
+    return left.magnitude.length - right.magnitude.length;
+  }
+  return left.magnitude.localeCompare(right.magnitude, 'en');
+}
+
+function compareAutoPairAudioPaths(left, right) {
+  const leftNumber = leadingTrackNumber(left);
+  const rightNumber = leadingTrackNumber(right);
+
+  if (leftNumber && rightNumber) {
+    return (
+      compareTrackNumberMagnitude(leftNumber, rightNumber) ||
+      naturalFilenameCompare(left, right)
+    );
+  }
+  if (leftNumber) {
+    return -1;
+  }
+  if (rightNumber) {
+    return 1;
+  }
+  return naturalFilenameCompare(left, right);
+}
+
 async function prepareAutoPairInputs(
   {
     folderPath,
@@ -952,12 +999,7 @@ async function prepareAutoPairInputs(
         entry.isFile() && path.extname(entry.name).toLowerCase() === '.mp3',
     )
     .map((entry) => path.join(absoluteFolderPath, entry.name))
-    .sort((left, right) =>
-      path.basename(left).localeCompare(path.basename(right), 'en', {
-        numeric: true,
-        sensitivity: 'base',
-      }),
-    );
+    .sort(compareAutoPairAudioPaths);
 
   if (audioPaths.length === 0) {
     throw new InputValidationError(
@@ -968,6 +1010,7 @@ async function prepareAutoPairInputs(
 
   const inspected = [];
   for (const audioPath of audioPaths) {
+    const trackNumber = leadingTrackNumber(audioPath)?.label || null;
     const audio = await probeImpl(audioPath, { ffprobePath });
     validateProbeMetadata('audio', audio, audioPath);
     const artwork = findEmbeddedArtwork(audio);
@@ -982,6 +1025,7 @@ async function prepareAutoPairInputs(
       audio,
       artwork,
       duration: metadataDuration(audio, 'audio'),
+      trackNumber,
     });
   }
 
@@ -1007,6 +1051,7 @@ async function prepareAutoPairInputs(
         duration: item.duration,
         audio: item.audio,
         artwork: item.artwork,
+        trackNumber: item.trackNumber,
       });
     }
     return pairs;

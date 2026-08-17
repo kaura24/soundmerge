@@ -196,6 +196,9 @@ async function run() {
     hasBridge: typeof window.soundForge?.render === 'function',
     hasAutoBridge: typeof window.soundForge?.selectAutoFolder === 'function',
     hasAutoFolderPicker: Boolean(document.querySelector('#selectAutoFolderBtn')),
+    hasAutoNumberOrderingCopy: document.querySelector('#autoPairCard')?.innerText.includes(
+      'leading filename number'
+    ),
     hasRenderProgress: Boolean(document.querySelector('#renderProgress')),
     autoModeVisible: (() => {
       switchMode("auto");
@@ -246,6 +249,7 @@ async function run() {
     !result.hasBridge ||
     !result.hasAutoBridge ||
     !result.hasAutoFolderPicker ||
+    !result.hasAutoNumberOrderingCopy ||
     !result.hasRenderProgress ||
     !result.autoModeVisible ||
     !result.autoBadgeOptional ||
