@@ -194,12 +194,25 @@ async function run() {
     hasTimeline: Boolean(document.querySelector('#timeline')),
     hasArtworkOption: Boolean(document.querySelector('#useArtworkCheckbox')),
     hasBridge: typeof window.soundForge?.render === 'function',
+    hasCancelBridge: typeof window.soundForge?.cancelRender === 'function',
     hasAutoBridge: typeof window.soundForge?.selectAutoFolder === 'function',
     hasAutoFolderPicker: Boolean(document.querySelector('#selectAutoFolderBtn')),
     hasAutoNumberOrderingCopy: document.querySelector('#autoPairCard')?.innerText.includes(
       'leading filename number'
     ),
     hasRenderProgress: Boolean(document.querySelector('#renderProgress')),
+    hasCancelButton: Boolean(document.querySelector('#cancelRenderButton')),
+    titleCardControls: (() => {
+      switchMode("auto");
+      const card = document.querySelector('#titleCardCard');
+      const templates = Array.from(card?.querySelectorAll('[data-title-card-template]') || [])
+        .map((button) => button.dataset.titleCardTemplate);
+      const durations = Array.from(card?.querySelectorAll('[data-title-card-duration]') || [])
+        .map((button) => Number(button.dataset.titleCardDuration));
+      const defaults = state.titleCardTemplate === 'editorial' && state.titleCardDuration === 5;
+      switchMode("single");
+      return card && !card.hidden && defaults && templates.join(',') === 'editorial,split,warm' && durations.join(',') === '3,5';
+    })(),
     autoModeVisible: (() => {
       switchMode("auto");
       const visible = !document.querySelector('#autoModeSection').hidden;
@@ -247,10 +260,13 @@ async function run() {
     !result.hasTimeline ||
     !result.hasArtworkOption ||
     !result.hasBridge ||
+    !result.hasCancelBridge ||
     !result.hasAutoBridge ||
     !result.hasAutoFolderPicker ||
     !result.hasAutoNumberOrderingCopy ||
     !result.hasRenderProgress ||
+    !result.hasCancelButton ||
+    !result.titleCardControls ||
     !result.autoModeVisible ||
     !result.autoBadgeOptional ||
     result.renderDisabled !== !fixturesLoaded ||

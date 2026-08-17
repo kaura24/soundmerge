@@ -265,3 +265,45 @@ test('prepareAutoPairInputs discovers sorted MP3 files and extracts each artwork
   assert.deepEqual(extracted.map((request) => request.streamIndex), [1, 1, 1, 1]);
   assert.ok(pairs.every((pair) => pair.visualType === 'image'));
 });
+
+test('createMultiPairMediaFile stops before the next pair when aborted', async () => {
+  const controller = new AbortController();
+  let createCalls = 0;
+  const fsPromises = {
+    access: async () => {},
+    lstat: async () => {
+      const error = new Error('missing');
+      error.code = 'ENOENT';
+      throw error;
+    },
+    mkdtemp: async () => '/work/stage',
+    rm: async () => {},
+    writeFile: async () => {},
+    rename: async () => {},
+  };
+
+  await assert.rejects(
+    createMultiPairMediaFile(
+      {
+        ffmpegPath: '/bin/ffmpeg',
+        pairs: [
+          { audioPath: '/media/1.mp3', visualPath: '/media/1.png', visualType: 'image', duration: 10 },
+          { audioPath: '/media/2.mp3', visualPath: '/media/2.png', visualType: 'image', duration: 10 },
+          { audioPath: '/media/3.mp3', visualPath: '/media/3.png', visualType: 'image', duration: 10 },
+        ],
+        outputPath: '/output/final.mp4',
+        workRoot: '/work',
+      },
+      {
+        fsPromises,
+        signal: controller.signal,
+        createMediaFileImpl: async () => {
+          createCalls += 1;
+          controller.abort();
+        },
+      },
+    ),
+    (error) => error.code === 'PROCESS_CANCELLED',
+  );
+  assert.equal(createCalls, 1);
+});

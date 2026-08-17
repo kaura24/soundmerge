@@ -33,6 +33,7 @@ const CHANNELS = Object.freeze({
   open: 'sound-forge:open',
   render: 'sound-forge:render',
   renderMulti: 'sound-forge:render-multi',
+  cancelRender: 'sound-forge:cancel-render',
   renderProgress: 'sound-forge:render-progress',
   reveal: 'sound-forge:reveal',
   selectAudio: 'sound-forge:select-audio',
@@ -44,6 +45,7 @@ const CHANNELS = Object.freeze({
 
 let mainWindow = null;
 let renderActive = false;
+let activeRenderController = null;
 
 function fileUrl(filePath) {
   return pathToFileURL(filePath).href;
@@ -268,6 +270,8 @@ function registerIpcHandlers() {
       throw new Error('A render is already running.');
     }
     renderActive = true;
+    const controller = new AbortController();
+    activeRenderController = controller;
     let badgePath = null;
 
     try {
@@ -299,6 +303,9 @@ function registerIpcHandlers() {
         outputPath: request.outputPath,
         badgePath: inspection.badgePath,
         overwrite: true,
+      },
+      {
+        signal: controller.signal,
       });
       return {
         success: true,
@@ -307,6 +314,9 @@ function registerIpcHandlers() {
       };
     } finally {
       renderActive = false;
+      if (activeRenderController === controller) {
+        activeRenderController = null;
+      }
       if (badgePath) {
         await fs.promises.rm(badgePath, { force: true }).catch(() => {});
       }
@@ -318,6 +328,8 @@ function registerIpcHandlers() {
       throw new Error('A render is already running.');
     }
     renderActive = true;
+    const controller = new AbortController();
+    activeRenderController = controller;
     const tempBadgePaths = [];
     let playlistBadgePath = null;
     let titleCardPath = null;
@@ -363,6 +375,9 @@ function registerIpcHandlers() {
             event.sender.send(CHANNELS.renderProgress, progress);
           }
         },
+      },
+      {
+        signal: controller.signal,
       });
       return {
         success: true,
@@ -371,10 +386,21 @@ function registerIpcHandlers() {
       };
     } finally {
       renderActive = false;
+      if (activeRenderController === controller) {
+        activeRenderController = null;
+      }
       for (const p of tempBadgePaths) {
         await fs.promises.rm(p, { force: true }).catch(() => {});
       }
     }
+  });
+
+  ipcMain.handle(CHANNELS.cancelRender, () => {
+    if (!renderActive || !activeRenderController) {
+      return false;
+    }
+    activeRenderController.abort();
+    return true;
   });
 
   ipcMain.handle(CHANNELS.open, async (_event, filePath) => {
@@ -447,6 +473,28 @@ function createMainWindow() {
       window.setAlwaysOnTop(false);
     }
   }, 1500);
+
+  let closeRequested = false;
+  window.on('close', (event) => {
+    if (!renderActive || closeRequested) {
+      return;
+    }
+
+    event.preventDefault();
+    closeRequested = true;
+    activeRenderController?.abort();
+
+    const finishClose = () => {
+      if (renderActive) {
+        setTimeout(finishClose, 50);
+        return;
+      }
+      if (!window.isDestroyed()) {
+        window.destroy();
+      }
+    };
+    finishClose();
+  });
 
   window.on('closed', () => {
     if (mainWindow === window) {

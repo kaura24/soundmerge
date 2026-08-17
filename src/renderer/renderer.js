@@ -18,6 +18,7 @@ const elements = {
   busyTitle: document.querySelector("#busyTitle"),
   completionCard: document.querySelector("#completionCard"),
   completionPath: document.querySelector("#completionPath"),
+  cancelRenderButton: document.querySelector("#cancelRenderButton"),
   controlRack: document.querySelector(".control-rack"),
   currentTime: document.querySelector("#currentTime"),
   dismissErrorButton: document.querySelector("#dismissErrorButton"),
@@ -95,6 +96,7 @@ const state = {
   titleBadgeText: "",
   titleCardTemplate: titleCardDomain?.DEFAULT_TITLE_CARD_TEMPLATE || "editorial",
   titleCardDuration: titleCardDomain?.DEFAULT_TITLE_CARD_DURATION || 5,
+  isCancelling: false,
 };
 
 function isPairMode(mode = state.mode) {
@@ -315,6 +317,9 @@ function updateActionAvailability() {
     elements.showTitleBadgeCheckbox.disabled = state.isBusy;
   }
   if (elements.titleBadgeInput) elements.titleBadgeInput.disabled = state.isBusy;
+  if (elements.cancelRenderButton) {
+    elements.cancelRenderButton.disabled = !state.isBusy || state.isCancelling;
+  }
   updateTitleCardControls();
   refreshTimeline();
 }
@@ -1126,6 +1131,9 @@ function resetSession() {
 
 function setBusy(isBusy) {
   state.isBusy = isBusy;
+  if (!isBusy) {
+    state.isCancelling = false;
+  }
   elements.busyPanel.hidden = !isBusy;
   elements.renderButton.hidden = isBusy;
   elements.controlRack.setAttribute("aria-busy", String(isBusy));
@@ -1140,6 +1148,30 @@ function setBusy(isBusy) {
     elements.renderProgressValue.textContent = "0%";
   }
   updateActionAvailability();
+}
+
+async function cancelRender() {
+  if (!state.isBusy || state.isCancelling) return;
+  state.isCancelling = true;
+  if (elements.cancelRenderButton) {
+    elements.cancelRenderButton.disabled = true;
+  }
+  elements.busyTitle.textContent = "Cancelling render";
+  elements.busyMessage.textContent = "Stopping FFmpeg and cleaning temporary files…";
+  try {
+    await api.cancelRender();
+  } catch (error) {
+    state.isCancelling = false;
+    showError(error, "The render could not be cancelled.");
+  }
+}
+
+function isRenderCancellation(error) {
+  return Boolean(
+    state.isCancelling ||
+    error?.code === "PROCESS_CANCELLED" ||
+    /cancelled/i.test(error?.message || ""),
+  );
 }
 
 async function selectAudio() {
@@ -1487,8 +1519,14 @@ async function renderMaster() {
     setSystemStatus("MASTER READY", "ready");
     elements.completionCard.scrollIntoView({ block: "nearest", behavior: "smooth" });
   } catch (error) {
-    setSystemStatus("ENGINE FAULT", "standby");
-    showError(error, "The master could not be created. Your source files were not changed.");
+    if (isRenderCancellation(error)) {
+      clearError();
+      clearCompletion();
+      setSystemStatus("RENDER CANCELLED", "standby");
+    } else {
+      setSystemStatus("ENGINE FAULT", "standby");
+      showError(error, "The master could not be created. Your source files were not changed.");
+    }
   } finally {
     setBusy(false);
   }
@@ -1600,6 +1638,9 @@ if (elements.titleCardCard) {
 elements.selectOutputButton.addEventListener("click", selectOutput);
 elements.playPauseButton.addEventListener("click", togglePreview);
 elements.renderButton.addEventListener("click", renderMaster);
+if (elements.cancelRenderButton) {
+  elements.cancelRenderButton.addEventListener("click", cancelRender);
+}
 elements.dismissErrorButton.addEventListener("click", clearError);
 elements.playOutputButton.addEventListener("click", playOutputInApp);
 elements.openOutputButton.addEventListener("click", openOutput);

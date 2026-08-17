@@ -15,6 +15,7 @@ const {
   inspectInputs,
   parseProbeJson,
   probeMedia,
+  runProcess,
   validateProbeMetadata,
 } = require('../../src/main/media-service');
 
@@ -515,4 +516,30 @@ test('buildFfmpegArgs applies title card first and playlist overlay after its du
   assert.match(filterString, /overlay=0:0:format=auto:shortest=0:enable='between\(t,0,3\)'/);
   assert.match(filterString, /overlay=40:40:format=auto:shortest=0:enable='gte\(t,3\)'/);
   assert.match(filterString, /overlay=W-w-40:40:format=auto:shortest=0:enable='gte\(t,3\)'/);
+});
+
+test('runProcess abort signal terminates the child and reports PROCESS_CANCELLED', async () => {
+  const controller = new AbortController();
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  let killSignal = null;
+  child.kill = (signal) => {
+    killSignal = signal;
+  };
+
+  const promise = runProcess('/usr/bin/ffmpeg', ['-version'], {
+    signal: controller.signal,
+    spawnImpl: () => child,
+  });
+
+  controller.abort();
+  child.emit('close', null, 'SIGTERM');
+
+  await assert.rejects(promise, (error) => {
+    assert.equal(error.code, 'PROCESS_CANCELLED');
+    assert.equal(error.signal, 'SIGTERM');
+    return true;
+  });
+  assert.equal(killSignal, 'SIGTERM');
 });

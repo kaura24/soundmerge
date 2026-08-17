@@ -977,6 +977,29 @@ h2 {
   letter-spacing: 0.08em;
   text-align: right;
 }
+.cancel-render-button {
+  min-height: 34px;
+  margin-top: 12px;
+  padding: 0 14px;
+  border: 1px solid #b8663e;
+  border-radius: 3px;
+  color: #ffb58c;
+  background: #4a241b;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.cancel-render-button:hover {
+  border-color: #ffb58c;
+  background: #5e2c20;
+}
+.cancel-render-button:disabled {
+  opacity: .55;
+  cursor: wait;
+}
 
 .busy-orbit {
   display: grid;

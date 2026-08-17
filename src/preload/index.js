@@ -7,6 +7,7 @@ const CHANNELS = Object.freeze({
   open: 'sound-forge:open',
   render: 'sound-forge:render',
   renderMulti: 'sound-forge:render-multi',
+  cancelRender: 'sound-forge:cancel-render',
   renderProgress: 'sound-forge:render-progress',
   reveal: 'sound-forge:reveal',
   selectAudio: 'sound-forge:select-audio',
@@ -21,6 +22,7 @@ contextBridge.exposeInMainWorld('soundForge', Object.freeze({
   open: (filePath) => ipcRenderer.invoke(CHANNELS.open, filePath),
   render: (request) => ipcRenderer.invoke(CHANNELS.render, request),
   renderMulti: (request) => ipcRenderer.invoke(CHANNELS.renderMulti, request),
+  cancelRender: () => ipcRenderer.invoke(CHANNELS.cancelRender),
   onRenderProgress: (callback) => {
     if (typeof callback !== 'function') {
       throw new TypeError('Progress callback must be a function.');

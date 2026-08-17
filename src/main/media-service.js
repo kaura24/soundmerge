@@ -50,9 +50,18 @@ function runProcess(
   {
     spawnImpl = spawn,
     captureLimitBytes = CAPTURE_LIMIT_BYTES,
+    signal,
   } = {},
 ) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new MediaProcessError('The media process was cancelled.', {
+        code: 'PROCESS_CANCELLED',
+        signal: 'SIGTERM',
+      }));
+      return;
+    }
+
     let child;
     try {
       child = spawnImpl(binaryPath, args, {
@@ -74,6 +83,16 @@ function runProcess(
     const stdoutState = { bytes: 0, truncated: false };
     const stderrState = { bytes: 0, truncated: false };
     let settled = false;
+    let cancelled = false;
+    const abortHandler = () => {
+      if (settled || cancelled) return;
+      cancelled = true;
+      if (typeof child.kill === 'function') {
+        child.kill('SIGTERM');
+      }
+    };
+
+    signal?.addEventListener('abort', abortHandler, { once: true });
 
     child.stdout.on('data', (chunk) => {
       appendBounded(
@@ -97,6 +116,14 @@ function runProcess(
         return;
       }
       settled = true;
+      signal?.removeEventListener('abort', abortHandler);
+      if (cancelled) {
+        reject(new MediaProcessError('The media process was cancelled.', {
+          code: 'PROCESS_CANCELLED',
+          signal: 'SIGTERM',
+        }));
+        return;
+      }
       reject(
         new MediaProcessError(`Unable to run ${path.basename(binaryPath)}.`, {
           cause: error,
@@ -105,11 +132,21 @@ function runProcess(
       );
     });
 
-    child.once('close', (exitCode, signal) => {
+    child.once('close', (exitCode, closeSignal) => {
       if (settled) {
         return;
       }
       settled = true;
+      signal?.removeEventListener('abort', abortHandler);
+
+      if (cancelled || signal?.aborted) {
+        reject(new MediaProcessError('The media process was cancelled.', {
+          code: 'PROCESS_CANCELLED',
+          exitCode,
+          signal: closeSignal || 'SIGTERM',
+        }));
+        return;
+      }
 
       const stdout = Buffer.concat(stdoutChunks).toString('utf8');
       const completeStderr = Buffer.concat(stderrChunks).toString('utf8');
@@ -128,7 +165,7 @@ function runProcess(
             {
               code: 'PROCESS_FAILED',
               exitCode,
-              signal,
+              signal: closeSignal,
               stderr,
             },
           ),
@@ -621,6 +658,7 @@ async function createMediaFile(
     idFactory = randomUUID,
     runProcessImpl = runProcess,
     spawnImpl = spawn,
+    signal,
   } = {},
 ) {
   if (!ffmpegPath) {
@@ -678,7 +716,7 @@ async function createMediaFile(
   });
 
   try {
-    await runProcessImpl(ffmpegPath, args, { spawnImpl });
+    await runProcessImpl(ffmpegPath, args, { spawnImpl, signal });
 
     if (
       !outputExisted &&
@@ -1199,6 +1237,7 @@ async function createMultiPairMediaFile(
     createMediaFileImpl = createMediaFile,
     runProcessImpl = runProcess,
     spawnImpl = spawn,
+    signal,
   } = {},
 ) {
   if (!ffmpegPath) {
@@ -1278,6 +1317,12 @@ async function createMultiPairMediaFile(
     );
     const segmentPaths = [];
     for (let index = 0; index < pairs.length; index += 1) {
+      if (signal?.aborted) {
+        throw new MediaProcessError('The multi-pair render was cancelled.', {
+          code: 'PROCESS_CANCELLED',
+          signal: 'SIGTERM',
+        });
+      }
       const pair = pairs[index];
       let visualPath = pair.visualPath;
       let badgePath = pair.badgePath;
@@ -1328,6 +1373,7 @@ async function createMultiPairMediaFile(
           idFactory,
           runProcessImpl,
           spawnImpl,
+          signal,
         },
       );
       segmentPaths.push(segmentPath);
@@ -1353,13 +1399,19 @@ async function createMultiPairMediaFile(
       manifestPath,
       outputPath: tempPath,
     });
+    if (signal?.aborted) {
+      throw new MediaProcessError('The multi-pair render was cancelled.', {
+        code: 'PROCESS_CANCELLED',
+        signal: 'SIGTERM',
+      });
+    }
     emitProgress({
       phase: 'concatenating',
       current: pairs.length,
       total: pairs.length,
       percent: 95,
     });
-    await runProcessImpl(ffmpegPath, args, { spawnImpl });
+    await runProcessImpl(ffmpegPath, args, { spawnImpl, signal });
 
     if (
       !outputExisted &&

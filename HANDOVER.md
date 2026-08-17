@@ -35,4 +35,7 @@
 - 첨부 artwork가 포함된 실제 인터넷 MP3로 GUI 선택 및 최종 렌더링을 추가 검증한다.
 - Auto/Multi 좌측 상단 플레이리스트 제목과 폴더명 기반 기본 마스터 파일명을 구현한다.
 - 렌더링 중 `Cancel render`, 창 닫기 시 FFmpeg 자동 중단과 임시 출력 정리를 구현하고 검증한다.
+- `/Users/iigsu/내 드라이브/youtobe/List1`의 실제 artwork 포함 MP3 3곡으로 Auto Pair 렌더, 출력 규격, A/B/E 타이틀 카드, 취소 동작을 검증한다.
 - `origin`은 `https://github.com/kaura24/soundmerge.git`로 등록되어 있으며, SSH 인증으로 `023b1c2`까지 `main` 브랜치에 push했다. HTTPS 원격 설정은 유지되어 있어 이후 push는 SSH 주소를 직접 지정하거나 인증 후 원격 URL을 SSH로 바꿔야 한다.
+- A/B/E 타이틀 카드 템플릿 선택, 3초/5초 길이 선택, Auto/Multi 최종 영상 좌측 상단 플레이리스트 오버레이, FFmpeg 취소 IPC와 Cancel render UI를 구현했다. 최신 단위 테스트 39개가 통과했다.
+- Electron smoke와 macOS Universal 빌드는 외부 LOCAL_ROOT Electron 43.2.0 실행 파일이 서명되지 않아 CLI 실행 즉시 SIGABRT로 종료되어 아직 검증하지 못했다.
