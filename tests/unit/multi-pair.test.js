@@ -8,11 +8,29 @@ const {
 } = require('../../src/shared/media-domain');
 const {
   buildBadgedStillFfmpegArgs,
+  buildExternalTitleFfmpegArgs,
   buildMultiPairFfmpegArgs,
   createMultiPairMediaFile,
   inspectMultiPairInputs,
   prepareAutoPairInputs,
 } = require('../../src/main/media-service');
+
+test('buildExternalTitleFfmpegArgs normalizes an external title video', () => {
+  const args = buildExternalTitleFfmpegArgs({
+    externalTitlePath: '/media/title.mp4',
+    duration: 4.01,
+    outputPath: '/work/title-segment.mp4',
+  });
+
+  assert.ok(args.includes('/media/title.mp4'));
+  assert.ok(args.includes('h264_videotoolbox'));
+  assert.ok(args.includes('aac'));
+  assert.equal(args[args.indexOf('-t') + 1], '4.01');
+  const filter = args[args.indexOf('-filter_complex') + 1];
+  assert.match(filter, /fps=30/);
+  assert.match(filter, /aresample=48000/);
+  assert.equal(args.at(-1), '/work/title-segment.mp4');
+});
 
 test('buildBadgedStillFfmpegArgs composites artwork and badge into one frame', () => {
   const args = buildBadgedStillFfmpegArgs({
@@ -201,6 +219,61 @@ test('createMultiPairMediaFile renders one pair at a time before concatenating',
   assert.ok(progressEvents.some((event) => event.phase === 'concatenating'));
   assert.equal(progressEvents.at(-1).phase, 'complete');
   assert.equal(progressEvents.at(-1).percent, 100);
+});
+
+test('createMultiPairMediaFile prepends an external title segment before track segments', async () => {
+  const files = new Set();
+  const externalCalls = [];
+  const manifests = [];
+  const fsPromises = {
+    access: async () => {},
+    lstat: async (filePath) => {
+      if (files.has(filePath)) return {};
+      const error = new Error('missing');
+      error.code = 'ENOENT';
+      throw error;
+    },
+    mkdtemp: async (prefix) => `${prefix}stage`,
+    writeFile: async (_filePath, content) => {
+      manifests.push(String(content));
+    },
+    rename: async (_source, destination) => files.add(destination),
+    rm: async () => {},
+  };
+
+  await createMultiPairMediaFile(
+    {
+      ffmpegPath: '/bin/ffmpeg',
+      pairs: [
+        { audioPath: '/media/01.mp3', visualPath: '/media/01.png', visualType: 'image', duration: 10 },
+        { audioPath: '/media/02.mp3', visualPath: '/media/02.png', visualType: 'image', duration: 12 },
+        { audioPath: '/media/03.mp3', visualPath: '/media/03.png', visualType: 'image', duration: 14 },
+      ],
+      outputPath: '/output/final.mp4',
+      workRoot: '/external/test-work',
+      externalTitlePath: '/media/title.mp4',
+      externalTitleDuration: 4.01,
+    },
+    {
+      fsPromises,
+      idFactory: () => 'external-title-id',
+      createExternalTitleMediaFileImpl: async (request) => {
+        externalCalls.push(request);
+        files.add(request.outputPath);
+      },
+      createMediaFileImpl: async (request) => {
+        files.add(request.outputPath);
+      },
+      runProcessImpl: async (_binaryPath, args) => {
+        files.add(args.at(-1));
+      },
+    },
+  );
+
+  assert.equal(externalCalls.length, 1);
+  assert.equal(externalCalls[0].externalTitlePath, '/media/title.mp4');
+  assert.equal(externalCalls[0].duration, 4.01);
+  assert.match(manifests[0], /segment-0000-title\.mp4[\s\S]*segment-0001\.mp4/);
 });
 
 test('prepareAutoPairInputs discovers sorted MP3 files and extracts each artwork', async () => {

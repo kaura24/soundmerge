@@ -1014,6 +1014,106 @@ function buildConcatFfmpegArgs({ manifestPath, outputPath }) {
   ];
 }
 
+function buildExternalTitleFfmpegArgs({
+  externalTitlePath,
+  duration,
+  outputPath,
+}) {
+  if (
+    typeof externalTitlePath !== 'string' ||
+    path.extname(externalTitlePath).toLowerCase() !== '.mp4'
+  ) {
+    throw new InputValidationError(
+      'The external title path must end in .mp4.',
+      'INVALID_EXTERNAL_TITLE_EXTENSION',
+    );
+  }
+  if (
+    typeof outputPath !== 'string' ||
+    path.extname(outputPath).toLowerCase() !== '.mp4'
+  ) {
+    throw new InputValidationError(
+      'The external title output path must end in .mp4.',
+      'INVALID_OUTPUT_EXTENSION',
+    );
+  }
+
+  const exactDuration = durationArgument(duration);
+  const filter =
+    '[0:v:0]format=nv12,split=2[title_bg_src][title_fg_src];' +
+    '[title_bg_src]scale=480:270:force_original_aspect_ratio=increase,' +
+    'crop=480:270,scale=1920:1080:flags=bicubic:out_range=tv,' +
+    'setsar=1,format=nv12[title_bg];' +
+    '[title_fg_src]scale=1920:1080:force_original_aspect_ratio=decrease:' +
+    'out_range=tv,setsar=1,format=nv12[title_fg];' +
+    '[title_bg][title_fg]overlay=(W-w)/2:(H-h)/2:shortest=1,' +
+    `fps=30,trim=duration=${exactDuration},setpts=PTS-STARTPTS,` +
+    'setparams=range=limited:color_primaries=bt709:' +
+    'color_trc=bt709:colorspace=bt709[v];' +
+    `[0:a:0]aresample=48000,aformat=sample_fmts=fltp:` +
+    `channel_layouts=stereo,atrim=duration=${exactDuration},` +
+    'asetpts=N/SR/TB[a]';
+
+  return [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-i', externalTitlePath,
+    '-filter_complex', filter,
+    '-map', '[v]', '-map', '[a]',
+    '-c:v', 'h264_videotoolbox',
+    '-profile:v', 'high',
+    '-level:v', '4.0',
+    '-allow_sw', '1',
+    '-realtime', '0',
+    '-b:v', '8M',
+    '-maxrate', '10M',
+    '-bufsize', '16M',
+    '-pix_fmt', 'nv12',
+    '-r', '30',
+    '-fps_mode', 'cfr',
+    '-field_order', 'progressive',
+    '-color_primaries', 'bt709',
+    '-color_trc', 'bt709',
+    '-colorspace', 'bt709',
+    '-c:a', 'aac',
+    '-profile:a', 'aac_low',
+    '-b:a', '384k',
+    '-ar', '48000',
+    '-ac', '2',
+    '-t', exactDuration,
+    '-map_metadata', '-1',
+    '-map_chapters', '-1',
+    '-sn', '-dn',
+    '-movflags', '+faststart',
+    '-f', 'mp4',
+    outputPath,
+  ];
+}
+
+async function createExternalTitleMediaFile(
+  {
+    ffmpegPath,
+    externalTitlePath,
+    duration,
+    outputPath,
+  },
+  {
+    runProcessImpl = runProcess,
+    spawnImpl = spawn,
+    signal,
+  } = {},
+) {
+  if (!ffmpegPath) {
+    throw new TypeError('ffmpegPath is required.');
+  }
+  const args = buildExternalTitleFfmpegArgs({
+    externalTitlePath,
+    duration,
+    outputPath,
+  });
+  await runProcessImpl(ffmpegPath, args, { spawnImpl, signal });
+  return outputPath;
+}
+
 async function inspectMultiPairInputs(
   pairs,
   {
@@ -1229,12 +1329,15 @@ async function createMultiPairMediaFile(
     playlistBadgePath,
     titleCardPath,
     titleCardDuration,
+    externalTitlePath,
+    externalTitleDuration,
     onProgress = () => {},
   },
   {
     fsPromises = fsPromisesDefault,
     idFactory = randomUUID,
     createMediaFileImpl = createMediaFile,
+    createExternalTitleMediaFileImpl = createExternalTitleMediaFile,
     runProcessImpl = runProcess,
     spawnImpl = spawn,
     signal,
@@ -1266,6 +1369,15 @@ async function createMultiPairMediaFile(
   }
 
   const absoluteOutputPath = path.resolve(outputPath);
+  if (
+    externalTitlePath &&
+    absoluteOutputPath === path.resolve(externalTitlePath)
+  ) {
+    throw new InputValidationError(
+      'The output path must be different from the external title video.',
+      'OUTPUT_MATCHES_INPUT',
+    );
+  }
   for (const pair of pairs) {
     if (
       absoluteOutputPath === path.resolve(pair.audioPath) ||
@@ -1316,6 +1428,34 @@ async function createMultiPairMediaFile(
       path.join(path.resolve(workRoot), 'sound-forge-multi-'),
     );
     const segmentPaths = [];
+    if (externalTitlePath) {
+      if (signal?.aborted) {
+        throw new MediaProcessError('The external title render was cancelled.', {
+          code: 'PROCESS_CANCELLED',
+          signal: 'SIGTERM',
+        });
+      }
+      emitProgress({
+        phase: 'external-title',
+        current: 0,
+        total: pairs.length,
+        percent: 0,
+      });
+      const externalTitleSegmentPath = path.join(
+        stageDirectory,
+        'segment-0000-title.mp4',
+      );
+      await createExternalTitleMediaFileImpl(
+        {
+          ffmpegPath,
+          externalTitlePath,
+          duration: externalTitleDuration,
+          outputPath: externalTitleSegmentPath,
+        },
+        { runProcessImpl, spawnImpl, signal },
+      );
+      segmentPaths.push(externalTitleSegmentPath);
+    }
     for (let index = 0; index < pairs.length; index += 1) {
       if (signal?.aborted) {
         throw new MediaProcessError('The multi-pair render was cancelled.', {
@@ -1450,9 +1590,11 @@ module.exports = {
   buildArtworkExtractArgs,
   buildBadgedStillFfmpegArgs,
   buildConcatFfmpegArgs,
+  buildExternalTitleFfmpegArgs,
   buildFfmpegArgs,
   buildMultiPairFfmpegArgs,
   createMediaFile,
+  createExternalTitleMediaFile,
   createMultiPairMediaFile,
   extractEmbeddedArtwork,
   findEmbeddedArtwork,

@@ -1555,6 +1555,65 @@ h2 {
   color: var(--paper) !important;
   background: var(--amber-faint) !important;
 }
+.external-title-control {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #343b36;
+}
+.external-title-control__divider,
+.external-title-help {
+  display: block;
+  color: var(--paper-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: .08em;
+}
+.external-title-selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--amber);
+  background: var(--amber-faint);
+}
+.external-title-selection span,
+.external-title-selection strong,
+.external-title-selection small {
+  display: block;
+  min-width: 0;
+}
+.external-title-selection strong,
+.external-title-selection small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.external-title-selection strong {
+  color: var(--paper);
+  font-size: 10px;
+}
+.external-title-selection small {
+  margin-top: 4px;
+  color: var(--paper-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+.external-title-selection button {
+  padding: 6px 8px;
+  border: 1px solid #8f5d3d;
+  color: #ffb58c;
+  background: #2f1914;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 8px;
+}
+.external-title-help {
+  margin-top: 8px;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
 @media (max-width: 680px) {
   .pair-pickers {
     grid-template-columns: 1fr;

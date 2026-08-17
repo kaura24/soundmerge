@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+MACOS_BUILD_OVERRIDE="${MACOS_BUILD_DIR:-}"
+
+cd "$SOURCE_ROOT"
+set -a
+. ./local.paths.env
+set +a
+
+if [ -n "$MACOS_BUILD_OVERRIDE" ]; then
+  MACOS_BUILD_DIR="$MACOS_BUILD_OVERRIDE"
+fi
+
+./scripts/setup/preflight
+
+for required in ENV_DIR CACHE_DIR BUILD_DIR MACOS_BUILD_DIR; do
+  if [ -z "${!required:-}" ]; then
+    printf 'FAIL: %s is not set\n' "$required" >&2
+    exit 1
+  fi
+done
+
+BUILDER_BIN="${ENV_DIR}/node_modules/.bin/electron-builder"
+MEDIA_TOOLS_DIR="${ENV_DIR}/media-tools"
+if [ ! -x "$BUILDER_BIN" ]; then
+  printf 'FAIL: electron-builder is missing: %s\n' "$BUILDER_BIN" >&2
+  exit 1
+fi
+for tool in ffmpeg ffprobe; do
+  if [ ! -x "${MEDIA_TOOLS_DIR}/${tool}" ]; then
+    printf 'FAIL: bundled media tool is missing: %s\n' "${MEDIA_TOOLS_DIR}/${tool}" >&2
+    exit 1
+  fi
+done
+
+mkdir -p "$ENV_DIR" "$CACHE_DIR/electron" "$CACHE_DIR/npm-cache" "$MACOS_BUILD_DIR"
+PACKAGE_WORK_DIR="$(mktemp -d "${ENV_DIR}/package-work.XXXXXX")"
+case "$PACKAGE_WORK_DIR" in
+  "${ENV_DIR}"/package-work.*) ;;
+  *)
+    printf 'FAIL: unsafe package workspace: %s\n' "$PACKAGE_WORK_DIR" >&2
+    exit 1
+    ;;
+esac
+cleanup() {
+  rm -rf "$PACKAGE_WORK_DIR"
+}
+trap cleanup EXIT
+
+cp -R src assets config "$PACKAGE_WORK_DIR/"
+cp package.json package-lock.json "$PACKAGE_WORK_DIR/"
+mkdir -p "$PACKAGE_WORK_DIR/vendor/media-tools"
+cp -R "$MEDIA_TOOLS_DIR/." "$PACKAGE_WORK_DIR/vendor/media-tools/"
+
+export ELECTRON_CACHE="$CACHE_DIR/electron"
+export npm_config_cache="$CACHE_DIR/npm-cache"
+export MACOS_BUILD_DIR
+export CSC_IDENTITY_AUTO_DISCOVERY=false
+
+"$BUILDER_BIN" \
+  --projectDir "$PACKAGE_WORK_DIR" \
+  --mac \
+  --universal \
+  --dir \
+  --config config/electron-builder.json
+
+printf 'macOS Universal app built in %s\n' "$MACOS_BUILD_DIR"

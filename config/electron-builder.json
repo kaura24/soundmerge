@@ -2,9 +2,6 @@
   "appId": "com.soundforge.desktop",
   "productName": "Sound Forge",
   "asar": true,
-  "electronDownload": {
-    "cache": "${env.ELECTRON_CACHE_DIR}"
-  },
   "files": [
     "src/**/*",
     "assets/**/*",

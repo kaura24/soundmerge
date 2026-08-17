@@ -15,6 +15,7 @@ Auto Pair와 Multi-Pair에서 폴더명을 작업 묶음의 플레이리스트 �
 - 긴 폴더명은 렌더 전에 안전한 표시 문자열로 제한하고, 파일명에는 기존 경로 안전화 규칙을 적용한다.
 - 타이틀 카드 템플릿은 A `Editorial rail`, B `Split title`, E `Warm poster`만 제공한다. C `Framed title`과 D `Waveform grid`는 구현 범위에서 제외한다.
 - 타이틀 카드 길이는 3초 또는 5초를 선택한다. 타이틀 카드는 무음 시각 오프닝이고, 첫 MP3 오디오는 0초부터 재생되어 오프닝 위에 깔린다. 출력 길이는 기존 MP3 길이를 유지한다.
+- 내부 카드 대신 H.264/AAC 외부 타이틀 MP4를 선택할 수 있다. 외부 타이틀의 영상과 오디오는 최종 규격으로 정규화해 맨 앞에 연결하고, 첫 MP3는 외부 영상 종료 뒤 시작한다.
 
 ## 제목 및 출력 파일명 데이터 흐름
 
@@ -24,6 +25,7 @@ Auto Pair와 Multi-Pair에서 폴더명을 작업 묶음의 플레이리스트 �
 4. Auto/Multi 상태에서 선택한 타이틀 카드 템플릿과 3초/5초 길이를 renderer 상태로 유지하고, preview canvas와 render IPC 요청에 동일하게 전달한다.
 5. 저장 대화상자의 기본 파일명은 `${playlistTitle}.mp4`로 제안한다. 사용자가 저장 대화상자에서 직접 파일명을 바꾸면 그 선택을 유지한다.
 6. Main process 렌더 요청에는 `playlistTitle`과 `titleCardTemplate`, `titleCardDuration`을 검증된 값으로 전달한다. FFmpeg 배지 PNG 생성 단계에서 타이틀 카드, 플레이리스트 오버레이, 곡 제목 배지의 위치를 명시적으로 유지한다.
+7. 외부 타이틀이 선택되면 `externalTitlePath`를 다시 probe해 H.264 영상과 AAC 오디오를 확인하고 내부 타이틀 PNG는 사용하지 않는다.
 
 ## 렌더 중단 및 창 닫기
 

@@ -12,6 +12,7 @@ const CHANNELS = Object.freeze({
   reveal: 'sound-forge:reveal',
   selectAudio: 'sound-forge:select-audio',
   selectAutoFolder: 'sound-forge:select-auto-folder',
+  selectExternalTitle: 'sound-forge:select-external-title',
   extractArtwork: 'sound-forge:extract-artwork',
   selectOutput: 'sound-forge:select-output',
   selectVisual: 'sound-forge:select-visual',
@@ -34,6 +35,7 @@ contextBridge.exposeInMainWorld('soundForge', Object.freeze({
   reveal: (filePath) => ipcRenderer.invoke(CHANNELS.reveal, filePath),
   selectAudio: () => ipcRenderer.invoke(CHANNELS.selectAudio),
   selectAutoFolder: () => ipcRenderer.invoke(CHANNELS.selectAutoFolder),
+  selectExternalTitle: () => ipcRenderer.invoke(CHANNELS.selectExternalTitle),
   extractArtwork: (audioPath) =>
     ipcRenderer.invoke(CHANNELS.extractArtwork, audioPath),
   selectOutput: (suggestedName) =>

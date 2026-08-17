@@ -1,41 +1,46 @@
 'use strict';
 
-const path = require('node:path');
-
-function safeBasename(value) {
-  const normalized = String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
-  return path.posix.basename(normalized) || '';
-}
-
-function playlistTitleForState({ mode, autoFolderPath = '', pairs = [] } = {}) {
-  if (mode === 'auto') {
-    return safeBasename(autoFolderPath) || 'Untitled Playlist';
+(function initializePlaylistDomain(root) {
+  function safeBasename(value) {
+    const normalized = String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    const separatorIndex = normalized.lastIndexOf('/');
+    return normalized.slice(separatorIndex + 1) || '';
   }
 
-  if (mode === 'multi') {
-    const firstAudioPath = String(pairs[0]?.audio?.path || '').replace(/\\/g, '/');
-    return safeBasename(path.posix.dirname(firstAudioPath)) || 'Untitled Playlist';
+  function parentBasename(value) {
+    const normalized = String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    const separatorIndex = normalized.lastIndexOf('/');
+    return separatorIndex > 0
+      ? safeBasename(normalized.slice(0, separatorIndex))
+      : '';
   }
 
-  return 'Untitled Playlist';
-}
+  function playlistTitleForState({ mode, autoFolderPath = '', pairs = [] } = {}) {
+    if (mode === 'auto') {
+      return safeBasename(autoFolderPath) || 'Untitled Playlist';
+    }
 
-function outputNameForPlaylist(title) {
-  const safe = String(title || 'Untitled Playlist')
-    .replace(/[^\p{L}\p{N}._ -]/gu, '-')
-    .trim() || 'Untitled Playlist';
-  return `${safe}.mp4`;
-}
+    if (mode === 'multi') {
+      return parentBasename(pairs[0]?.audio?.path) || 'Untitled Playlist';
+    }
 
-const playlistDomain = {
-  playlistTitleForState,
-  outputNameForPlaylist,
-};
+    return 'Untitled Playlist';
+  }
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = playlistDomain;
-}
+  function outputNameForPlaylist(title) {
+    const safe = String(title || 'Untitled Playlist')
+      .replace(/[^\p{L}\p{N}._ -]/gu, '-')
+      .trim() || 'Untitled Playlist';
+    return `${safe}.mp4`;
+  }
 
-if (typeof globalThis !== 'undefined') {
-  globalThis.SoundForgePlaylistDomain = playlistDomain;
-}
+  const api = {
+    playlistTitleForState,
+    outputNameForPlaylist,
+  };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = api;
+  }
+  root.SoundForgePlaylistDomain = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);

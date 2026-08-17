@@ -65,6 +65,11 @@ const elements = {
   badgeInputWrap: document.querySelector("#badgeInputWrap"),
   titleBadgeInput: document.querySelector("#titleBadgeInput"),
   titleCardCard: document.querySelector("#titleCardCard"),
+  selectExternalTitleBtn: document.querySelector("#selectExternalTitleBtn"),
+  clearExternalTitleBtn: document.querySelector("#clearExternalTitleBtn"),
+  externalTitleSelection: document.querySelector("#externalTitleSelection"),
+  externalTitleName: document.querySelector("#externalTitleName"),
+  externalTitleMeta: document.querySelector("#externalTitleMeta"),
 };
 
 const previewAudio = new Audio();
@@ -97,6 +102,8 @@ const state = {
   titleCardTemplate: titleCardDomain?.DEFAULT_TITLE_CARD_TEMPLATE || "editorial",
   titleCardDuration: titleCardDomain?.DEFAULT_TITLE_CARD_DURATION || 5,
   isCancelling: false,
+  externalTitle: null,
+  previewingExternalTitle: false,
 };
 
 function isPairMode(mode = state.mode) {
@@ -193,12 +200,31 @@ function updateTitleCardControls() {
     const active = button.dataset.titleCardTemplate === titleCardTemplateValue();
     button.classList.toggle("title-card-option--active", active);
     button.setAttribute("aria-pressed", String(active));
+    button.disabled = state.isBusy || Boolean(state.externalTitle);
   });
   elements.titleCardCard.querySelectorAll("[data-title-card-duration]").forEach((button) => {
     const active = Number(button.dataset.titleCardDuration) === titleCardDurationValue();
     button.classList.toggle("title-card-duration--active", active);
     button.setAttribute("aria-pressed", String(active));
+    button.disabled = state.isBusy || Boolean(state.externalTitle);
   });
+  if (elements.externalTitleSelection) {
+    elements.externalTitleSelection.hidden = !state.externalTitle;
+  }
+  if (elements.externalTitleName) {
+    elements.externalTitleName.textContent = state.externalTitle?.name || "";
+  }
+  if (elements.externalTitleMeta) {
+    elements.externalTitleMeta.textContent = state.externalTitle
+      ? `${formatDuration(Number(state.externalTitle.duration))} · H.264 + AAC`
+      : "";
+  }
+  if (elements.selectExternalTitleBtn) {
+    elements.selectExternalTitleBtn.disabled = state.isBusy;
+  }
+  if (elements.clearExternalTitleBtn) {
+    elements.clearExternalTitleBtn.disabled = state.isBusy;
+  }
 }
 
 function filePathToUrl(filePath) {
@@ -216,13 +242,17 @@ function mediaFileUrl(media) {
 }
 
 function pairOffset(index) {
-  return state.pairs
+  const externalDuration = Number(state.externalTitle?.duration) || 0;
+  return externalDuration + state.pairs
     .slice(0, index)
     .reduce((sum, pair) => sum + (Number(pair.audio?.duration) || 0), 0);
 }
 
 function previewTimelinePosition() {
   if (isPairMode()) {
+    if (state.previewingExternalTitle) {
+      return Number(previewVideo.currentTime) || 0;
+    }
     return state.previewPairOffset + (Number(previewAudio.currentTime) || 0);
   }
 
@@ -231,7 +261,8 @@ function previewTimelinePosition() {
 
 function durationFromState() {
   if (isPairMode()) {
-    return state.pairs.reduce((sum, p) => sum + (Number(p.audio?.duration) || 0), 0);
+    return (Number(state.externalTitle?.duration) || 0) +
+      state.pairs.reduce((sum, p) => sum + (Number(p.audio?.duration) || 0), 0);
   }
 
   if (Number.isFinite(previewAudio.duration)) {
@@ -286,7 +317,10 @@ function updateRenderProgress(progress = {}) {
   elements.renderProgressFill.style.width = `${roundedPercent}%`;
   elements.renderProgressValue.textContent = `${roundedPercent}%`;
 
-  if (progress.phase === "compositing") {
+  if (progress.phase === "external-title") {
+    elements.busyTitle.textContent = "Preparing external title";
+    elements.busyMessage.textContent = "Normalizing the opening video and audio before track 01…";
+  } else if (progress.phase === "compositing") {
     elements.busyTitle.textContent = `Preparing artwork ${current} of ${total}`;
     elements.busyMessage.textContent = "Applying the title badge once before video encoding…";
   } else if (progress.phase === "concatenating") {
@@ -366,12 +400,32 @@ function waitForVideoMetadata() {
   });
 }
 
+async function loadExternalTitlePreview(relativeTime = 0) {
+  if (!state.externalTitle) {
+    throw new Error("Choose an external title video first.");
+  }
+  state.previewingExternalTitle = true;
+  state.activePairIndex = 0;
+  state.previewPairOffset = 0;
+  previewAudio.pause();
+  syncVisualSource(state.externalTitle);
+  await waitForVideoMetadata();
+  const duration = Number(state.externalTitle.duration) || previewVideo.duration || 0;
+  previewVideo.currentTime = Math.max(
+    0,
+    Math.min(Number(relativeTime) || 0, duration),
+  );
+  elements.monitorPlaceholder.hidden = true;
+  drawPreview();
+}
+
 async function loadMultiPairPreview(index, relativeTime = 0) {
   const pair = state.pairs[index];
   if (!pair?.audio || !pair.visual) {
     throw new Error("Choose both an audio track and a visual source for every pair before previewing.");
   }
 
+  state.previewingExternalTitle = false;
   state.activePairIndex = index;
   state.previewPairOffset = pairOffset(index);
   const audioUrl = mediaFileUrl(pair.audio);
@@ -390,8 +444,25 @@ async function loadMultiPairPreview(index, relativeTime = 0) {
 async function seekMultiPairPreview(position) {
   const duration = durationFromState();
   const target = Math.max(0, Math.min(Number(position) || 0, duration));
+  const externalDuration = Number(state.externalTitle?.duration) || 0;
+  const wasPlaying = state.previewingExternalTitle
+    ? !previewVideo.paused
+    : !previewAudio.paused;
+
+  pausePreview();
+  if (state.externalTitle && target < externalDuration) {
+    await loadExternalTitlePreview(target);
+    if (wasPlaying) {
+      await previewVideo.play();
+      setTransportPlaying(true);
+      startDrawing();
+    }
+    refreshTimeline();
+    return;
+  }
+
   let index = 0;
-  let offset = 0;
+  let offset = externalDuration;
 
   for (let i = 0; i < state.pairs.length; i += 1) {
     const pairDuration = Number(state.pairs[i].audio?.duration) || 0;
@@ -402,8 +473,6 @@ async function seekMultiPairPreview(position) {
     offset += pairDuration;
   }
 
-  const wasPlaying = !previewAudio.paused;
-  pausePreview();
   await loadMultiPairPreview(index, target - offset);
   if (wasPlaying) {
     await playLoadedMultiPair();
@@ -414,6 +483,7 @@ async function seekMultiPairPreview(position) {
 function syncVideoToAudio(force = false) {
   const visual = getCurrentVisual();
   if (
+    state.previewingExternalTitle ||
     visual?.kind !== "video" ||
     !Number.isFinite(previewVideo.duration) ||
     previewVideo.duration <= 0
@@ -467,8 +537,11 @@ function getCurrentVisual() {
   }
 
   if (isPairMode() && state.pairs.length > 0) {
+    if (state.previewingExternalTitle && state.externalTitle) {
+      return state.externalTitle;
+    }
     const current = previewTimelinePosition();
-    let accumulated = 0;
+    let accumulated = Number(state.externalTitle?.duration) || 0;
     for (const pair of state.pairs) {
       const dur = Number(pair.audio?.duration) || 0;
       if (current >= accumulated && current <= accumulated + dur) {
@@ -696,13 +769,14 @@ function getTitleCardDataUrl(template, text) {
 }
 
 function isTitleCardActive() {
-  return isPairMode() && state.pairs.length > 0 && previewTimelinePosition() < titleCardDurationValue();
+  return isPairMode() && !state.externalTitle && state.pairs.length > 0 && previewTimelinePosition() < titleCardDurationValue();
 }
 
 function getCurrentPair() {
   if (!isPairMode() || state.pairs.length === 0) return null;
+  if (state.previewingExternalTitle) return null;
   const current = previewTimelinePosition();
-  let accumulated = 0;
+  let accumulated = Number(state.externalTitle?.duration) || 0;
   for (const pair of state.pairs) {
     const dur = Number(pair.audio?.duration) || 0;
     if (current >= accumulated && current <= accumulated + dur) {
@@ -755,6 +829,12 @@ function syncVisualSource(visual) {
   }
 
   const url = mediaFileUrl(visual);
+  const isExternalTitle = Boolean(
+    state.previewingExternalTitle &&
+    state.externalTitle?.path === visual.path,
+  );
+  previewVideo.muted = !isExternalTitle;
+  previewVideo.loop = !isExternalTitle;
   if (url === activeVisualUrl) {
     return;
   }
@@ -789,6 +869,7 @@ function drawPreview() {
   const visual = currentVisual || state.visual;
   const kind = visual ? normalizedVisualKind(visual) : null;
   const titleCardActive = isTitleCardActive();
+  const externalTitleActive = state.previewingExternalTitle && Boolean(state.externalTitle);
 
   const isVideoReady = kind === "video" && previewVideo.readyState >= 2 && previewVideo.videoWidth > 0;
   const isImageReady = kind === "image" && previewImage.complete && previewImage.naturalWidth > 0;
@@ -814,7 +895,7 @@ function drawPreview() {
     canvasContext.fillRect(0, 0, width, height);
   }
 
-  if (isPairMode() && !titleCardActive) {
+  if (isPairMode() && !titleCardActive && !externalTitleActive) {
     const playlistCanvas = getPlaylistOverlayCanvas(currentPlaylistTitle());
     const scale = width / 1920;
     canvasContext.drawImage(
@@ -826,7 +907,7 @@ function drawPreview() {
     );
   }
 
-  if (state.showTitleBadge && !titleCardActive) {
+  if (state.showTitleBadge && !titleCardActive && !externalTitleActive) {
     const badgeText = getActiveBadgeText();
     if (badgeText) {
       const badgeCanvas = getTitleBadgeCanvas(badgeText);
@@ -839,7 +920,10 @@ function drawPreview() {
     }
   }
 
-  if (!previewAudio.paused && (kind === "video" || isPairMode())) {
+  const playbackActive = externalTitleActive
+    ? !previewVideo.paused
+    : !previewAudio.paused;
+  if (playbackActive && (kind === "video" || isPairMode())) {
     state.animationFrame = window.requestAnimationFrame(drawPreview);
   } else {
     state.animationFrame = null;
@@ -901,7 +985,21 @@ async function playMultiPreview() {
     previewTimelinePosition() >= totalDuration;
 
   try {
+    if (state.externalTitle && state.previewingExternalTitle) {
+      await waitForVideoMetadata();
+      await previewVideo.play();
+      setTransportPlaying(true);
+      startDrawing();
+      return;
+    }
     if (needsReset) {
+      if (state.externalTitle) {
+        await loadExternalTitlePreview(0);
+        await previewVideo.play();
+        setTransportPlaying(true);
+        startDrawing();
+        return;
+      }
       await loadMultiPairPreview(0, 0);
     } else {
       syncVisualSource(currentPair.visual);
@@ -1097,6 +1195,10 @@ function resetSession() {
   state.outputFileUrl = "";
   state.titleCardTemplate = titleCardDomain?.DEFAULT_TITLE_CARD_TEMPLATE || "editorial";
   state.titleCardDuration = titleCardDomain?.DEFAULT_TITLE_CARD_DURATION || 5;
+  state.externalTitle = null;
+  state.previewingExternalTitle = false;
+  previewVideo.muted = true;
+  previewVideo.loop = true;
 
   elements.audioName.textContent = "Choose an audio file";
   elements.audioMeta.textContent = "MP3 · one track";
@@ -1196,6 +1298,35 @@ async function selectVisual() {
   } catch (error) {
     showError(error, "The visual chooser could not be opened.");
   }
+}
+
+async function selectExternalTitle() {
+  clearError();
+  try {
+    const media = await api.selectExternalTitle();
+    if (!media) return;
+    pausePreview();
+    state.externalTitle = media;
+    activeVisualUrl = "";
+    await loadExternalTitlePreview(0);
+    updateTitleCardControls();
+    updateActionAvailability();
+    drawPreview();
+  } catch (error) {
+    showError(error, "The external title video could not be opened.");
+  }
+}
+
+function clearExternalTitle() {
+  pausePreview();
+  state.externalTitle = null;
+  state.previewingExternalTitle = false;
+  activeVisualUrl = "";
+  previewVideo.muted = true;
+  previewVideo.loop = true;
+  updateTitleCardControls();
+  updateActionAvailability();
+  drawPreview();
 }
 
 async function selectOutput() {
@@ -1389,6 +1520,7 @@ function renderPairList() {
 }
 
 function switchMode(mode) {
+  pausePreview();
   if (state.mode === "multi") {
     state.manualPairs = state.pairs;
   } else if (state.mode === "auto") {
@@ -1415,6 +1547,18 @@ function switchMode(mode) {
     state.manualPairs = state.pairs;
   } else if (mode === "auto") {
     state.pairs = state.autoPairs;
+  }
+
+  state.previewingExternalTitle = Boolean(
+    isPairMode(mode) && state.externalTitle,
+  );
+  if (state.previewingExternalTitle) {
+    state.previewPairOffset = 0;
+    activeVisualUrl = "";
+    syncVisualSource(state.externalTitle);
+    if (previewVideo.readyState >= 1) {
+      previewVideo.currentTime = 0;
+    }
   }
 
   renderPairList();
@@ -1488,12 +1632,16 @@ async function renderMaster() {
         }),
         outputPath: state.outputPath,
         playlistBadgeDataUrl: getPlaylistOverlayDataUrl(currentPlaylistTitle()),
-        titleCardDataUrl: getTitleCardDataUrl(
-          titleCardTemplateValue(),
-          currentPlaylistTitle(),
-        ),
+        titleCardDataUrl: state.externalTitle
+          ? null
+          : getTitleCardDataUrl(
+            titleCardTemplateValue(),
+            currentPlaylistTitle(),
+          ),
         titleCardTemplate: titleCardTemplateValue(),
         titleCardDuration: titleCardDurationValue(),
+        externalTitlePath: state.externalTitle?.path || null,
+        externalTitleDuration: Number(state.externalTitle?.duration) || 0,
       });
     } else {
       result = await api.render({
@@ -1599,6 +1747,12 @@ elements.modeMultiBtn.addEventListener("click", () => switchMode("multi"));
 elements.modeAutoBtn.addEventListener("click", () => switchMode("auto"));
 elements.addPairBtn.addEventListener("click", addPair);
 elements.selectAutoFolderBtn.addEventListener("click", selectAutoFolder);
+if (elements.selectExternalTitleBtn) {
+  elements.selectExternalTitleBtn.addEventListener("click", selectExternalTitle);
+}
+if (elements.clearExternalTitleBtn) {
+  elements.clearExternalTitleBtn.addEventListener("click", clearExternalTitle);
+}
 elements.selectAudioButton.addEventListener("click", selectAudio);
 elements.selectVisualButton.addEventListener("click", selectVisual);
 elements.useArtworkCheckbox.addEventListener("change", toggleEmbeddedArtwork);
@@ -1697,6 +1851,26 @@ previewAudio.addEventListener("error", () => {
 
 previewVideo.addEventListener("loadeddata", drawPreview);
 previewVideo.addEventListener("seeked", drawPreview);
+previewVideo.addEventListener("timeupdate", () => {
+  if (!state.previewingExternalTitle) return;
+  refreshTimeline();
+  drawPreview();
+});
+previewVideo.addEventListener("play", () => {
+  if (state.previewingExternalTitle) setTransportPlaying(true);
+});
+previewVideo.addEventListener("pause", () => {
+  if (state.previewingExternalTitle) setTransportPlaying(false);
+});
+previewVideo.addEventListener("ended", () => {
+  if (!state.previewingExternalTitle || state.pairs.length === 0) return;
+  loadMultiPairPreview(0, 0)
+    .then(() => playLoadedMultiPair())
+    .catch((error) => {
+      pausePreview();
+      showError(error, "The selected media could not be played.");
+    });
+});
 previewVideo.addEventListener("error", () => {
   showError("The selected video could not be decoded.");
 });

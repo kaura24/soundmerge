@@ -25,6 +25,14 @@
 - 정지 artwork와 제목 배지를 곡마다 PNG 한 장으로 사전 합성한 뒤 영상화하도록 최적화했다. 배지 포함 세 곡의 개별 렌더와 최종 concat 전체를 155.77초에 완료하고 경계 시점의 배지와 최종 규격을 확인했다.
 - 카드·입력 박스·컨트롤 랙의 배경 명도와 테두리 대비를 높이고 앱·화면·배지 마크를 골드 5-바 디자인으로 통일했다.
 - 2026-08-17 현재 변경분을 `9dcc8bc`로 커밋했고, Auto/Multi 플레이리스트 제목·폴더명 기반 마스터 파일명·렌더 중단·창 닫기 자동 중단·중복 실행 방지 요구사항을 PRD에 기록했다. 세 가지 플레이리스트 제목 시안은 로컬 브레인스토밍 화면에서 제공했다.
+- A/B/E 타이틀 카드 템플릿 선택, 3초/5초 길이 선택, Auto/Multi 최종 영상 좌측 상단 플레이리스트 오버레이, 외부 H.264/AAC 타이틀 선택·미리보기·선행 결합, FFmpeg 취소 IPC와 Cancel render UI를 구현했다. 최신 단위 테스트 42개와 Electron GUI smoke가 통과했다.
+- Electron CLI와 셸 FFmpeg는 Codex 셸 샌드박스에서 AppKit/VideoToolbox 세션을 만들지 못했지만, macOS GUI `open` 컨텍스트에서 Electron과 번들 FFmpeg VideoToolbox가 정상 동작했다. 인코더나 라이선스 구성은 바꾸지 않았다.
+- `List1` 실제 artwork 포함 MP3 3곡 GUI 렌더를 완료했다. 681.755646초, H.264 High 1080p30 yuv420p, AAC-LC 48 kHz stereo, Fast Start, 원본 합계 대비 0.034709초 차이로 합격했다. 실제 렌더 취소와 임시 파일 정리도 통과했다.
+- 모든 내부·외부 타이틀 검증 후 `/Users/iigsu/.local/builds/sound-forge/macos/final-validation-20260817-r2/mac-universal/Sound Forge.app`을 패키징했다. 앱 본체·FFmpeg·FFprobe 모두 x86_64/arm64를 포함하고, Intel 실행·단일 인스턴스·골드 아이콘 해시 일치를 확인했다.
+- 내부 5초 A안과 외부 4.01초 타이틀을 각각 실제 01→02→03 렌더로 확인했다. 내부/외부 타이틀, `List1`, 세 곡 제목 배지, 외부 타이틀 오디오와 곡 오디오가 모두 정상이며 두 결과의 길이 오차는 0.05초 이내였다.
+- `npm run package:mac`이 `ENV_DIR/package-work.*` 외부 임시 작업공간에서만 빌드하도록 수정했다. 프로젝트 루트에 생겼던 `node_modules`와 `${env.ELECTRON_CACHE_DIR}` 캐시는 제거했고 preflight가 다시 통과했다.
+- 재현된 개발·테스트 문제와 해결 명령은 `docs/references/troubleshooting.md`에 기록했다. 같은 증상이 생기면 이 문서를 먼저 확인한다.
+- `origin`은 `https://github.com/kaura24/soundmerge.git`로 등록되어 있으며, SSH 인증으로 `023b1c2`까지 `main` 브랜치에 push했다. 최신 구현 커밋은 최종 검증 전이라 아직 push하지 않았다.
 
 ## 해야 할 일
 
@@ -33,10 +41,3 @@
 - FFmpeg 네이티브 AAC는 384 kbps를 요청하지만 현재 샘플의 실제 평균은 약 265 kbps이므로, 384 kbps 고정이 출시 조건이면 인코더 전략을 확정한다.
 - arm64 검증과 서명을 마친 뒤에만 `releases/`로 최종 승격한다.
 - 첨부 artwork가 포함된 실제 인터넷 MP3로 GUI 선택 및 최종 렌더링을 추가 검증한다.
-- Auto/Multi 좌측 상단 플레이리스트 제목과 폴더명 기반 기본 마스터 파일명을 구현한다.
-- 렌더링 중 `Cancel render`, 창 닫기 시 FFmpeg 자동 중단과 임시 출력 정리를 구현하고 검증한다.
-- `/Users/iigsu/내 드라이브/youtobe/List1`의 실제 artwork 포함 MP3 3곡으로 Auto Pair 렌더, 출력 규격, A/B/E 타이틀 카드, 취소 동작을 검증한다.
-- `origin`은 `https://github.com/kaura24/soundmerge.git`로 등록되어 있으며, SSH 인증으로 `023b1c2`까지 `main` 브랜치에 push했다. HTTPS 원격 설정은 유지되어 있어 이후 push는 SSH 주소를 직접 지정하거나 인증 후 원격 URL을 SSH로 바꿔야 한다.
-- A/B/E 타이틀 카드 템플릿 선택, 3초/5초 길이 선택, Auto/Multi 최종 영상 좌측 상단 플레이리스트 오버레이, FFmpeg 취소 IPC와 Cancel render UI를 구현했다. 최신 단위 테스트 39개가 통과했다.
-- Electron smoke와 macOS Universal 빌드는 외부 LOCAL_ROOT Electron 43.2.0 실행 파일이 서명되지 않아 CLI 실행 즉시 SIGABRT로 종료되어 아직 검증하지 못했다.
-- 3곡 실제 렌더는 TEST_WORK_DIR 권한을 받은 뒤 FFmpeg 실행까지 도달했지만, LGPL 번들의 유일한 H.264 인코더 `h264_videotoolbox`가 현재 환경에서 `Cannot create compression session: -12903`으로 실패했다. 현재 번들에는 `libx264`가 없어 인코더 변경 없이 합격 산출물을 만들 수 없다.

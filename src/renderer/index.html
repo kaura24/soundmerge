@@ -340,6 +340,20 @@
               <button type="button" data-title-card-duration="3" aria-pressed="false">3 SEC</button>
               <button type="button" class="title-card-duration--active" data-title-card-duration="5" aria-pressed="true">5 SEC</button>
             </div>
+            <div class="external-title-control">
+              <span class="external-title-control__divider">OR EXTERNAL MP4</span>
+              <button class="add-pair-button" id="selectExternalTitleBtn" type="button">
+                Choose external title video
+              </button>
+              <div class="external-title-selection" id="externalTitleSelection" hidden>
+                <span>
+                  <strong id="externalTitleName"></strong>
+                  <small id="externalTitleMeta"></small>
+                </span>
+                <button id="clearExternalTitleBtn" type="button">Remove</button>
+              </div>
+              <small class="external-title-help">External video audio plays first; track 01 starts after it ends.</small>
+            </div>
           </section>
 
           <section class="output-card" aria-labelledby="outputHeading">

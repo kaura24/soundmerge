@@ -38,6 +38,7 @@ const CHANNELS = Object.freeze({
   reveal: 'sound-forge:reveal',
   selectAudio: 'sound-forge:select-audio',
   selectAutoFolder: 'sound-forge:select-auto-folder',
+  selectExternalTitle: 'sound-forge:select-external-title',
   extractArtwork: 'sound-forge:extract-artwork',
   selectOutput: 'sound-forge:select-output',
   selectVisual: 'sound-forge:select-visual',
@@ -100,6 +101,17 @@ function selectedMedia(filePath, inspection, kind) {
 
 function dialogOwner(event) {
   return BrowserWindow.fromWebContents(event.sender) || mainWindow || undefined;
+}
+
+function externalTitleDuration(metadata, filePath) {
+  validateProbeMetadata('video', metadata, filePath);
+  const audioStream = metadata.streams.find(
+    (stream) => stream?.codec_type === 'audio',
+  );
+  if (!audioStream || audioStream.codec_name !== 'aac') {
+    throw new Error('The external title video must contain AAC audio.');
+  }
+  return metadataDuration(metadata, 'video');
 }
 
 function registerIpcHandlers() {
@@ -244,6 +256,32 @@ function registerIpcHandlers() {
     );
   });
 
+  ipcMain.handle(CHANNELS.selectExternalTitle, async (event) => {
+    const selection = await dialog.showOpenDialog(dialogOwner(event), {
+      title: 'Choose an external title video',
+      properties: ['openFile'],
+      filters: [{ name: 'H.264 MP4 title video', extensions: ['mp4'] }],
+    });
+    if (selection.canceled || selection.filePaths.length === 0) {
+      return null;
+    }
+
+    const externalTitlePath = selection.filePaths[0];
+    const { ffprobePath } = resolveBinaryPaths({ app });
+    const probe = await probeMedia(externalTitlePath, { ffprobePath });
+    const duration = externalTitleDuration(probe, externalTitlePath);
+    return {
+      ...selectedMedia(
+        externalTitlePath,
+        { visual: probe, visualType: 'video' },
+        'visual',
+      ),
+      duration,
+      hasAudio: true,
+      audioCodec: 'aac',
+    };
+  });
+
   ipcMain.handle(CHANNELS.selectOutput, async (event, suggestedName) => {
     const safeName =
       path.basename(String(suggestedName || 'sound-forge-master.mp4'))
@@ -361,6 +399,17 @@ function registerIpcHandlers() {
         ffprobePath,
       });
 
+      let inspectedExternalTitleDuration = 0;
+      if (request.externalTitlePath) {
+        const externalProbe = await probeMedia(request.externalTitlePath, {
+          ffprobePath,
+        });
+        inspectedExternalTitleDuration = externalTitleDuration(
+          externalProbe,
+          request.externalTitlePath,
+        );
+      }
+
       const outputPath = await createMultiPairMediaFile({
         ffmpegPath,
         pairs: inspection.pairs,
@@ -370,6 +419,8 @@ function registerIpcHandlers() {
         playlistBadgePath,
         titleCardPath,
         titleCardDuration: request.titleCardDuration,
+        externalTitlePath: request.externalTitlePath || null,
+        externalTitleDuration: inspectedExternalTitleDuration,
         onProgress: (progress) => {
           if (!event.sender.isDestroyed()) {
             event.sender.send(CHANNELS.renderProgress, progress);

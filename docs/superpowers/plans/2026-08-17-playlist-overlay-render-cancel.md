@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement Auto/Multi playlist overlays, selectable A/B/E title-card templates at 3 or 5 seconds, safe render cancellation, then validate the macOS Universal app on Intel and Apple Silicon without publishing build binaries yet.
+**Goal:** Implement Auto/Multi playlist overlays, selectable A/B/E title-card templates at 3 or 5 seconds, optional external H.264/AAC title videos, safe render cancellation, then validate the macOS Universal app on Intel and Apple Silicon without publishing build binaries yet.
 
 **Architecture:** Keep playlist-title and title-card selections in the renderer state model, pass validated values and generated transparent PNG overlays through the existing renderer→preload→main IPC path, and extend the existing FFmpeg process wrapper with a cancellation handle. The Electron main process owns process cancellation and window-close coordination; the renderer only requests cancellation and resets UI state.
 
@@ -160,6 +160,20 @@ Add unit assertions for the filter/concat order and E2E assertions for the three
 git add src/renderer/index.html src/renderer/renderer.js src/renderer/styles.css src/main/index.js src/main/media-service.js tests/unit/media-service.test.js tests/e2e/smoke.js
 git commit -m "feat: add selectable title card openings"
 ```
+
+### Task 2B: Add an optional external title video
+
+**Files:**
+- Modify: `src/main/index.js`, `src/main/media-service.js`, `src/preload/index.js`
+- Modify: `src/renderer/index.html`, `src/renderer/renderer.js`, `src/renderer/styles.css`
+- Test: `tests/unit/multi-pair.test.js`, `tests/e2e/smoke.js`
+
+- [ ] Validate selected MP4 input as H.264 video with AAC audio.
+- [ ] Expose the external-title picker through preload and show the selected duration in Auto/Multi UI.
+- [ ] Disable internal A/B/E controls while an external title is selected.
+- [ ] Preview the external video with its audio before track 01 and include its duration in the timeline.
+- [ ] Normalize it to 1080p30 H.264/AAC and prepend it before the three track segments.
+- [ ] Verify the supplied 4.01-second title, all three track titles, both audio sections, total duration, and Fast Start.
 
 ### Task 3: Add cancellable FFmpeg processes and renderer cancel control
 

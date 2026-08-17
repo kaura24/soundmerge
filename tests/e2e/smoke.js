@@ -83,6 +83,28 @@ async function run() {
     }
   }
 
+  const overlayOutputDir = process.env.SOUND_FORGE_OVERLAY_OUTPUT_DIR;
+  if (overlayOutputDir) {
+    const playlistTitle = process.env.SOUND_FORGE_OVERLAY_TITLE || 'Sound Forge Playlist';
+    await fs.mkdir(overlayOutputDir, { recursive: true });
+    const playlistDataUrl = await window.webContents.executeJavaScript(
+      `getPlaylistOverlayDataUrl(${JSON.stringify(playlistTitle)})`,
+    );
+    await fs.writeFile(
+      path.join(overlayOutputDir, 'playlist-overlay.png'),
+      Buffer.from(playlistDataUrl.split(',')[1], 'base64'),
+    );
+    for (const template of ['editorial', 'split', 'warm']) {
+      const titleCardDataUrl = await window.webContents.executeJavaScript(
+        `getTitleCardDataUrl(${JSON.stringify(template)}, ${JSON.stringify(playlistTitle)})`,
+      );
+      await fs.writeFile(
+        path.join(overlayOutputDir, `title-card-${template}.png`),
+        Buffer.from(titleCardDataUrl.split(',')[1], 'base64'),
+      );
+    }
+  }
+
   const fixtureAudio = process.env.SOUND_FORGE_TEST_MP3;
   const fixtureImage = process.env.SOUND_FORGE_TEST_IMAGE;
   const fixtureVideo = process.env.SOUND_FORGE_TEST_VIDEO;
@@ -196,7 +218,9 @@ async function run() {
     hasBridge: typeof window.soundForge?.render === 'function',
     hasCancelBridge: typeof window.soundForge?.cancelRender === 'function',
     hasAutoBridge: typeof window.soundForge?.selectAutoFolder === 'function',
+    hasExternalTitleBridge: typeof window.soundForge?.selectExternalTitle === 'function',
     hasAutoFolderPicker: Boolean(document.querySelector('#selectAutoFolderBtn')),
+    hasExternalTitlePicker: Boolean(document.querySelector('#selectExternalTitleBtn')),
     hasAutoNumberOrderingCopy: document.querySelector('#autoPairCard')?.innerText.includes(
       'leading filename number'
     ),
@@ -210,8 +234,9 @@ async function run() {
       const durations = Array.from(card?.querySelectorAll('[data-title-card-duration]') || [])
         .map((button) => Number(button.dataset.titleCardDuration));
       const defaults = state.titleCardTemplate === 'editorial' && state.titleCardDuration === 5;
+      const visible = Boolean(card && !card.hidden);
       switchMode("single");
-      return card && !card.hidden && defaults && templates.join(',') === 'editorial,split,warm' && durations.join(',') === '3,5';
+      return visible && defaults && templates.join(',') === 'editorial,split,warm' && durations.join(',') === '3,5';
     })(),
     autoModeVisible: (() => {
       switchMode("auto");
@@ -262,7 +287,9 @@ async function run() {
     !result.hasBridge ||
     !result.hasCancelBridge ||
     !result.hasAutoBridge ||
+    !result.hasExternalTitleBridge ||
     !result.hasAutoFolderPicker ||
+    !result.hasExternalTitlePicker ||
     !result.hasAutoNumberOrderingCopy ||
     !result.hasRenderProgress ||
     !result.hasCancelButton ||
