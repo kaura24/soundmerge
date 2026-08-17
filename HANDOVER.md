@@ -39,3 +39,4 @@
 - `origin`은 `https://github.com/kaura24/soundmerge.git`로 등록되어 있으며, SSH 인증으로 `023b1c2`까지 `main` 브랜치에 push했다. HTTPS 원격 설정은 유지되어 있어 이후 push는 SSH 주소를 직접 지정하거나 인증 후 원격 URL을 SSH로 바꿔야 한다.
 - A/B/E 타이틀 카드 템플릿 선택, 3초/5초 길이 선택, Auto/Multi 최종 영상 좌측 상단 플레이리스트 오버레이, FFmpeg 취소 IPC와 Cancel render UI를 구현했다. 최신 단위 테스트 39개가 통과했다.
 - Electron smoke와 macOS Universal 빌드는 외부 LOCAL_ROOT Electron 43.2.0 실행 파일이 서명되지 않아 CLI 실행 즉시 SIGABRT로 종료되어 아직 검증하지 못했다.
+- 3곡 실제 렌더는 TEST_WORK_DIR 권한을 받은 뒤 FFmpeg 실행까지 도달했지만, LGPL 번들의 유일한 H.264 인코더 `h264_videotoolbox`가 현재 환경에서 `Cannot create compression session: -12903`으로 실패했다. 현재 번들에는 `libx264`가 없어 인코더 변경 없이 합격 산출물을 만들 수 없다.
